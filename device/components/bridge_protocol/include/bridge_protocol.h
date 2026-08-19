@@ -18,6 +18,7 @@ typedef enum {
     BRIDGE_TYPE_IPV4 = 0x10,
     BRIDGE_TYPE_PING = 0x20,
     BRIDGE_TYPE_PONG = 0x21,
+    BRIDGE_TYPE_TIME_SYNC = 0x22,
     BRIDGE_TYPE_CLEAR_BOND = 0x30,
     BRIDGE_TYPE_ERROR = 0x7f,
 } bridge_frame_type_t;

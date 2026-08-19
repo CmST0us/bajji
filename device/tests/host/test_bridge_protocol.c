@@ -84,6 +84,21 @@ static void clear_bond_frame(void) {
     assert(parsed.payload_len == 0);
 }
 
+static void time_sync_frame(void) {
+    bridge_frame_t frame = {.type = BRIDGE_TYPE_TIME_SYNC, .sequence = 9, .payload_len = 8};
+    const uint8_t epoch[] = {0, 0, 0, 0, 0x68, 0xa6, 0x70, 0x80};
+    memcpy(frame.payload, epoch, sizeof(epoch));
+    uint8_t encoded[16];
+    assert(bridge_encode(&frame, encoded, sizeof(encoded)) == sizeof(encoded));
+
+    bridge_parser_t parser = {0};
+    bridge_frame_t parsed = {0};
+    size_t consumed = 0;
+    assert(bridge_parser_feed(&parser, encoded, sizeof(encoded), &consumed, &parsed) == BRIDGE_FRAME_READY);
+    assert(parsed.type == BRIDGE_TYPE_TIME_SYNC);
+    assert(memcmp(parsed.payload, epoch, sizeof(epoch)) == 0);
+}
+
 int main(void) {
     split_frame();
     coalesced_frames();
@@ -91,5 +106,6 @@ int main(void) {
     rejects_invalid_headers();
     encodes_frame();
     clear_bond_frame();
+    time_sync_frame();
     return 0;
 }

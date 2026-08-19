@@ -20,6 +20,7 @@ Types and payloads:
 | `10` | IPV4 | One IPv4 packet, 20–1280 bytes |
 | `20` | PING | 8-byte monotonic timestamp |
 | `21` | PONG | The same 8-byte timestamp |
+| `22` | TIME_SYNC | 8-byte unsigned Unix epoch seconds, big-endian |
 | `30` | CLEAR_BOND | Empty; Device clears its bond, rotates its BLE identity and disconnects |
 | `7F` | ERROR | 2-byte error code |
 

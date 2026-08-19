@@ -20,6 +20,7 @@ struct BridgeFrame: Equatable, Sendable {
         case ipv4 = 0x10
         case ping = 0x20
         case pong = 0x21
+        case timeSync = 0x22
         case clearBond = 0x30
         case error = 0x7F
 
@@ -28,7 +29,7 @@ struct BridgeFrame: Equatable, Sendable {
             case .hello: length == 22
             case .helloAck: length == 7
             case .ipv4: (20...BridgeFrame.maximumPayload).contains(length)
-            case .ping, .pong: length == 8
+            case .ping, .pong, .timeSync: length == 8
             case .clearBond: length == 0
             case .error: length == 2
             }

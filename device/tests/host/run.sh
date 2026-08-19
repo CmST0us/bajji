@@ -18,3 +18,11 @@ cc -std=c11 -Wall -Wextra -Werror \
   "$device_dir/components/bridge_protocol/bridge_protocol.c" \
   -o "$out_dir/test_bridge_protocol"
 "$out_dir/test_bridge_protocol"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -I"$device_dir/components/ip_bridge/include" \
+  -I"$device_dir/components/bridge_protocol/include" \
+  "$test_dir/test_ipv4_packet.c" \
+  "$device_dir/components/ip_bridge/ipv4_packet.c" \
+  -o "$out_dir/test_ipv4_packet"
+"$out_dir/test_ipv4_packet"

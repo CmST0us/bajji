@@ -80,6 +80,15 @@ struct BridgeStreamParserTests {
         #expect(try parser.append(encoded) == [frame])
     }
 
+    @Test func encodesAndParsesTimeSync() throws {
+        let frame = BridgeFrame(type: .timeSync, sequence: 9, payload: Data([0, 0, 0, 0, 0x68, 0xA6, 0x70, 0x80]))
+        let encoded = try frame.encode()
+        #expect(Array(encoded.prefix(8)) == [0xBA, 0x77, 1, 0x22, 0, 8, 0, 9])
+
+        var parser = BridgeStreamParser()
+        #expect(try parser.append(encoded) == [frame])
+    }
+
     #if !SWIFT_PACKAGE
     @Test func phaseZeroKeepsTwentyFourFramesInFlight() async throws {
         let runner = PhaseZeroRunner()

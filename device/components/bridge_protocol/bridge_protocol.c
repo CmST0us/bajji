@@ -9,7 +9,8 @@ static int payload_length_valid(uint8_t type, uint16_t length) {
         case BRIDGE_TYPE_HELLO_ACK: return length == 7;
         case BRIDGE_TYPE_IPV4: return length >= 20 && length <= BRIDGE_MAX_PAYLOAD;
         case BRIDGE_TYPE_PING:
-        case BRIDGE_TYPE_PONG: return length == 8;
+        case BRIDGE_TYPE_PONG:
+        case BRIDGE_TYPE_TIME_SYNC: return length == 8;
         case BRIDGE_TYPE_CLEAR_BOND: return length == 0;
         case BRIDGE_TYPE_ERROR: return length == 2;
         default: return 0;
