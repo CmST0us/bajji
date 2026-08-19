@@ -178,10 +178,20 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             sendClearBond()
             return
         }
+        sendTimeSync()
         setReady(true)
         update { $0.state = "L2CAP ready" }
         logger.info("HELLO accepted; L2CAP bridge ready")
         onReady?()
+    }
+
+    private func sendTimeSync() {
+        let seconds = UInt64(Date().timeIntervalSince1970)
+        let payload = Data((0..<8).map { index in
+            UInt8((seconds >> UInt64((7 - index) * 8)) & 0xFF)
+        })
+        stream?.send(BridgeFrame(type: .timeSync, sequence: 1, payload: payload))
+        logger.info("sent clock synchronization")
     }
 
     private func sendClearBond() {

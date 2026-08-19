@@ -12,15 +12,8 @@ struct PhaseZeroSnapshot: Codable {
 }
 
 final class PhaseZeroRunner: @unchecked Sendable {
-    private static let windowSize = 24
-    private static let payload: Data = {
-        var payload = Data(repeating: 0xA5, count: BridgeFrame.maximumPayload)
-        payload.replaceSubrange(0..<20, with: [
-            0x45, 0, 0x05, 0, 0, 0, 0x40, 0, 64, 17, 0, 0,
-            10, 77, 0, 1, 10, 77, 0, 2
-        ])
-        return payload
-    }()
+    private static let windowSize = 4
+    private static let payload = Data(repeating: 0xA5, count: 8)
 
     private let queue = DispatchQueue(label: "com.eric3u.bajji.phase-zero")
     private let lock = NSLock()
@@ -65,7 +58,7 @@ final class PhaseZeroRunner: @unchecked Sendable {
     }
 
     func receive(_ frame: BridgeFrame) {
-        guard frame.type == .ipv4 else { return }
+        guard frame.type == .pong else { return }
         queue.async { [weak self] in
             guard let self, timer != nil, inFlightFrames > 0 else { return }
             inFlightFrames -= 1
@@ -104,7 +97,7 @@ final class PhaseZeroRunner: @unchecked Sendable {
     private func fillWindow() {
         guard timer != nil, let sendFrame else { return }
         while inFlightFrames < Self.windowSize {
-            let frame = BridgeFrame(type: .ipv4, sequence: sequence, payload: Self.payload)
+            let frame = BridgeFrame(type: .ping, sequence: sequence, payload: Self.payload)
             sequence &+= 1
             inFlightFrames += 1
             lock.withLock {

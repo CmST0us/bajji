@@ -4,8 +4,31 @@ import NetworkExtension
 import Observation
 
 struct TunnelDiagnostics: Decodable {
+    let internet: String
     let bluetooth: BluetoothDiagnostics
+    let forwarder: IPForwarderDiagnostics
     let phaseZero: PhaseZeroDiagnostics
+}
+
+struct IPForwarderDiagnostics: Decodable {
+    let state: String
+    let fromDevicePackets: UInt64
+    let fromDeviceBytes: UInt64
+    let toDevicePackets: UInt64
+    let toDeviceBytes: UInt64
+    let droppedPackets: UInt64
+    let invalidPackets: UInt64
+    let lastError: String
+    let hev: HEVDiagnostics
+}
+
+struct HEVDiagnostics: Decodable {
+    let state: String
+    let txPackets: UInt64
+    let txBytes: UInt64
+    let rxPackets: UInt64
+    let rxBytes: UInt64
+    let lastError: String
 }
 
 struct BluetoothDiagnostics: Decodable {
@@ -41,7 +64,7 @@ final class TunnelManager {
     var status = "Not installed"
     var detail = "Install the VPN profile, then start the bridge."
     var diagnostics: TunnelDiagnostics?
-    var phaseZeroOnStart = true
+    var phaseZeroOnStart = false
     var isBusy = false
 
     func refresh() async {
@@ -81,8 +104,8 @@ final class TunnelManager {
             ])
             self.status = "Connecting"
             self.detail = self.phaseZeroOnStart
-                ? "Pair when prompted; Phase 0 starts after the CoC opens."
-                : "Pair when prompted."
+                ? "Pair when prompted; Debug Echo starts after L2CAP is ready."
+                : "Pair when prompted; the StopWatch will use the iPhone uplink."
         }
     }
 
@@ -111,8 +134,9 @@ final class TunnelManager {
         guard let session = manager?.connection as? NETunnelProviderSession,
               session.status == .connected else { return }
         do {
-            _ = try await send(phaseZeroOnStart ? "phase0:start" : "phase0:stop", through: session)
-            detail = phaseZeroOnStart ? "Phase 0 echo requested." : "Phase 0 echo stopped."
+            _ = try await send(phaseZeroOnStart ? "debug:echo:start" : "debug:echo:stop",
+                               through: session)
+            detail = phaseZeroOnStart ? "Debug echo requested." : "Production forwarding enabled."
         } catch {
             detail = error.localizedDescription
         }

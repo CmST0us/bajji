@@ -4,16 +4,13 @@ import SwiftUI
 
 struct ContentView: View {
     let tunnel: TunnelManager
+    @State private var debugExpanded = false
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Tunnel") {
-                    LabeledContent("Status", value: tunnel.status)
-                    Toggle("Run 60-second Phase 0 echo", isOn: Bindable(tunnel).phaseZeroOnStart)
-                        .onChange(of: tunnel.phaseZeroOnStart) {
-                            Task { await tunnel.applyPhaseZeroSetting() }
-                        }
+                    LabeledContent("VPN", value: tunnel.status)
                     Button("Install VPN Profile") { Task { await tunnel.install() } }
                     Button("Start Bridge") { Task { await tunnel.start() } }
                         .disabled(tunnel.isBusy)
@@ -21,9 +18,12 @@ struct ContentView: View {
                 }
 
                 if let diagnostics = tunnel.diagnostics {
-                    connectionSection(diagnostics.bluetooth)
+                    connectionSection(diagnostics.bluetooth, internet: diagnostics.internet)
+                    forwarderSection(diagnostics.forwarder)
                     transportSection(diagnostics.bluetooth)
-                    phaseZeroSection(diagnostics.phaseZero)
+                    debugSection(diagnostics.phaseZero)
+                } else {
+                    debugSection(nil)
                 }
 
                 Section("Diagnostics") {
@@ -48,13 +48,37 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func connectionSection(_ bluetooth: BluetoothDiagnostics) -> some View {
+    private func connectionSection(_ bluetooth: BluetoothDiagnostics, internet: String) -> some View {
         Section("Connection") {
-            LabeledContent("State", value: bluetooth.state)
+            LabeledContent("Bluetooth", value: bluetooth.state)
+            LabeledContent("Internet", value: internet)
             LabeledContent("Signal", value: bluetooth.rssi == 0 ? "—" : "\(bluetooth.rssi) dBm")
             LabeledContent("L2CAP PSM", value: String(format: "0x%04X", bluetooth.psm))
             LabeledContent("Max payload", value: "\(bluetooth.maximumPayload) B")
             LabeledContent("Reconnects", value: "\(bluetooth.reconnects)")
+        }
+    }
+
+    @ViewBuilder
+    private func forwarderSection(_ forwarder: IPForwarderDiagnostics) -> some View {
+        Section("IP Forwarder") {
+            LabeledContent("State", value: forwarder.state)
+            LabeledContent("Device → Internet",
+                           value: "\(forwarder.fromDevicePackets) · \(formattedBytes(forwarder.fromDeviceBytes))")
+            LabeledContent("Internet → Device",
+                           value: "\(forwarder.toDevicePackets) · \(formattedBytes(forwarder.toDeviceBytes))")
+            LabeledContent("Dropped") {
+                Text("\(forwarder.droppedPackets)")
+                    .foregroundStyle(forwarder.droppedPackets == 0 ? Color.secondary : Color.red)
+            }
+            LabeledContent("Invalid", value: "\(forwarder.invalidPackets)")
+            LabeledContent("HEV", value: forwarder.hev.state)
+            if !forwarder.lastError.isEmpty || !forwarder.hev.lastError.isEmpty {
+                LabeledContent("Last error") {
+                    Text(forwarder.lastError.isEmpty ? forwarder.hev.lastError : forwarder.lastError)
+                        .foregroundStyle(.red)
+                }
+            }
         }
     }
 
@@ -76,18 +100,23 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func phaseZeroSection(_ phaseZero: PhaseZeroDiagnostics) -> some View {
-        Section("Phase Zero Echo") {
-            LabeledContent("State", value: phaseZero.running ? "Running · window 4" : "Stopped")
-            LabeledContent("Payload TX", value: formattedBytes(phaseZero.sentPayloadBytes))
-            LabeledContent("Echo RX", value: formattedBytes(phaseZero.echoedPayloadBytes))
-            LabeledContent("Echo rate", value: String(format: "%.1f KB/s", phaseZero.echoedKilobytesPerSecond))
-            LabeledContent("50 KB/s target") {
-                Text(phaseZero.echoedKilobytesPerSecond >= 50 ? "PASS" : "Pending")
-                    .foregroundStyle(phaseZero.echoedKilobytesPerSecond >= 50 ? Color.green : Color.secondary)
+    private func debugSection(_ phaseZero: PhaseZeroDiagnostics?) -> some View {
+        Section("Debug") {
+            DisclosureGroup("Internal Tools", isExpanded: $debugExpanded) {
+                Toggle("60-second PING/PONG echo", isOn: Bindable(tunnel).phaseZeroOnStart)
+                    .onChange(of: tunnel.phaseZeroOnStart) {
+                        Task { await tunnel.applyPhaseZeroSetting() }
+                    }
+                if let phaseZero {
+                    LabeledContent("State", value: phaseZero.running ? "Running · window 4" : "Stopped")
+                    LabeledContent("Payload TX", value: formattedBytes(phaseZero.sentPayloadBytes))
+                    LabeledContent("Echo RX", value: formattedBytes(phaseZero.echoedPayloadBytes))
+                    LabeledContent("Echo rate",
+                                   value: String(format: "%.1f KB/s", phaseZero.echoedKilobytesPerSecond))
+                    LabeledContent("In flight", value: "\(phaseZero.inFlightFrames) frames")
+                    LabeledContent("Elapsed", value: String(format: "%.1f s", phaseZero.elapsedSeconds))
+                }
             }
-            LabeledContent("In flight", value: "\(phaseZero.inFlightFrames) frames")
-            LabeledContent("Elapsed", value: String(format: "%.1f s", phaseZero.elapsedSeconds))
         }
     }
 
