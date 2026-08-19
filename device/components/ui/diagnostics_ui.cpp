@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #include "diagnostics_ui.hpp"
 
+#include <inttypes.h>
+
 #include "lvgl.h"
 
 namespace bajji {
@@ -47,6 +49,8 @@ void confirm_shutdown(lv_event_t*) {
     }, LV_EVENT_CLICKED, message);
 }
 
+void clear_bond(lv_event_t*) { ble_link_clear_bond(); }
+
 }  // namespace
 
 void DiagnosticsUI::create() {
@@ -84,13 +88,14 @@ void DiagnosticsUI::create() {
     lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW_WRAP);
     add_button(actions, "Tone + Motor", test_feedback);
     add_button(actions, "Brightness", cycle_brightness);
+    add_button(actions, "Clear bond", clear_bond);
     add_button(actions, "Power off", confirm_shutdown);
 
     auto* hint = add_label(root, "Key A: feedback test    Key B: brightness");
     lv_obj_set_style_text_color(hint, lv_color_hex(0x8290a8), 0);
 }
 
-void DiagnosticsUI::refresh(const BoardStatus& status) {
+void DiagnosticsUI::refresh(const BoardStatus& status, const ble_link_status_t& link) {
     if (!power_) return;
     lv_label_set_text_fmt(power_, "Power: PMIC %s / IOE %s    Battery %u%% (%u mV)%s",
                           health_text(status.pmic), health_text(status.io_expander),
@@ -105,6 +110,20 @@ void DiagnosticsUI::refresh(const BoardStatus& status) {
                           static_cast<double>(status.imu_sample.accel_y),
                           static_cast<double>(status.imu_sample.accel_z), health_text(status.rtc),
                           status.rtc_text.data());
+    if (link.passkey) {
+        lv_label_set_text_fmt(ble_, "BLE: enter passkey %06" PRIu32, link.passkey);
+    } else if (link.connected) {
+        lv_label_set_text_fmt(ble_, "BLE: %s%s  PHY %u/%u  interval %.2f ms",
+                              link.encrypted ? "encrypted" : "connected",
+                              link.bonded ? " / bonded" : "", link.tx_phy, link.rx_phy,
+                              static_cast<double>(link.connection_interval_units) * 1.25);
+    } else {
+        lv_label_set_text(ble_, link.advertising ? "BLE: advertising" : "BLE: starting");
+    }
+    lv_label_set_text_fmt(bridge_, "Bridge: %s  MTU %u / MPS %u\nRX %llu B / TX %llu B / dropped %" PRIu32,
+                          link.coc_connected ? "Phase 0 echo" : "offline", link.peer_coc_mtu, link.peer_mps,
+                          (unsigned long long)link.rx_bytes, (unsigned long long)link.tx_bytes,
+                          link.dropped_frames);
 }
 
 }  // namespace bajji

@@ -1,5 +1,5 @@
 idf_component_register(
     SRCS "diagnostics_ui.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES board_hal lvgl
+    REQUIRES ble_link board_hal lvgl
 )

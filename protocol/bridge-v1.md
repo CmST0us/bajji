@@ -29,3 +29,13 @@ already ordered, reliable, and protected by a link CRC.
 
 Each direction queues no more than 32 complete frames. CoC MTU is at least
 1536. IPv4 MTU is 1280.
+
+## BLE discovery
+
+- Primary service UUID: `6f8f8db0-9c86-4ac5-a854-3a9e2f20b321`
+- BridgeInfo characteristic UUID: `6f8f8db0-9c86-4ac5-a854-3a9e2f20b322`
+- LE credit-based L2CAP PSM: `0x0081`
+
+BridgeInfo is readable only on the encrypted bonded link and is exactly 22
+bytes: protocol version, capability bits (`0x07` = IPv4/TCP/UDP), big-endian
+PSM, big-endian maximum payload, then the stable 16-byte Device ID.
