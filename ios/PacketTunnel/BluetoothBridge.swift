@@ -21,6 +21,8 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     static var infoUUID: CBUUID { CBUUID(string: "6F8F8DB0-9C86-4AC5-A854-3A9E2F20B322") }
 
     private let queue = DispatchQueue(label: "com.eric3u.bajji.packet-tunnel.ble")
+    private let sendSlots = DispatchSemaphore(value: 32)
+    private let receiveSlots = DispatchSemaphore(value: 32)
     private let snapshotLock = NSLock()
     private let defaults = UserDefaults.standard
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "Bluetooth")
@@ -61,8 +63,14 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     }
 
     func send(_ frame: BridgeFrame) {
+        guard sendSlots.wait(timeout: .now()) == .success else {
+            update { $0.queueOverflows += 1 }
+            return
+        }
         queue.async { [weak self] in
-            guard let self, handshakeNonce == nil else { return }
+            guard let self else { return }
+            defer { sendSlots.signal() }
+            guard handshakeNonce == nil else { return }
             stream?.send(frame)
         }
     }
@@ -305,7 +313,16 @@ extension BluetoothBridge: CBPeripheralDelegate {
         logger.info("L2CAP channel opened: psm=\(channel.psm)")
         let stream = L2CAPStream(channel: channel)
         stream.onFrame = { [weak self] frame in
-            self?.queue.async { [weak self] in self?.handle(frame) }
+            guard let self else { return }
+            guard receiveSlots.wait(timeout: .now()) == .success else {
+                update { $0.queueOverflows += 1 }
+                return
+            }
+            queue.async { [weak self] in
+                guard let self else { return }
+                defer { receiveSlots.signal() }
+                handle(frame)
+            }
         }
         stream.onBytes = { [weak self] received, sent in
             self?.update {

@@ -8,6 +8,7 @@ final class L2CAPStream: NSObject, StreamDelegate, @unchecked Sendable {
     private let input: InputStream
     private let output: OutputStream
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "L2CAP")
+    private let dispatchSlots = DispatchSemaphore(value: 32)
     private var parser = BridgeStreamParser()
     private var pending: [Data] = []
     private var pendingOffset = 0
@@ -44,8 +45,15 @@ final class L2CAPStream: NSObject, StreamDelegate, @unchecked Sendable {
 
     func send(_ frame: BridgeFrame) {
         guard let encoded = try? frame.encode() else { return }
+        guard dispatchSlots.wait(timeout: .now()) == .success else {
+            logger.error("TX dispatch queue overflow")
+            onQueueOverflow?()
+            return
+        }
         DispatchQueue.main.async { [weak self] in
-            guard let self, !closed else { return }
+            guard let self else { return }
+            defer { dispatchSlots.signal() }
+            guard !closed else { return }
             guard pending.count < 32 else {
                 logger.error("TX queue overflow: queued_frames=\(self.pending.count)")
                 onQueueOverflow?()

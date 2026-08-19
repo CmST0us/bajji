@@ -17,6 +17,7 @@ struct IPForwarderSnapshot: Codable {
 final class IPForwarder: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.eric3u.bajji.forwarder.ip")
     private let lock = NSLock()
+    private let ingressSlots = DispatchSemaphore(value: 32)
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "IPForwarder")
     private let hev = HEVForwarder()
     private var pipe: PacketPipe?
@@ -45,8 +46,14 @@ final class IPForwarder: @unchecked Sendable {
     }
 
     func receiveFromDevice(_ frame: BridgeFrame) {
+        guard ingressSlots.wait(timeout: .now()) == .success else {
+            update { $0.droppedPackets += 1 }
+            return
+        }
         queue.async { [weak self] in
-            guard let self, frame.type == .ipv4 else { return }
+            guard let self else { return }
+            defer { ingressSlots.signal() }
+            guard frame.type == .ipv4 else { return }
             do {
                 try IPv4Packet.validate(frame.payload, expectedAddress: [10, 77, 0, 2],
                                         direction: .fromDevice)
