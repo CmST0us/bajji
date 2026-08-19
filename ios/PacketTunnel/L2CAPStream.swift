@@ -3,6 +3,7 @@ import CoreBluetooth
 import Foundation
 
 final class L2CAPStream: NSObject, StreamDelegate, @unchecked Sendable {
+    private let channel: CBL2CAPChannel
     private let input: InputStream
     private let output: OutputStream
     private var parser = BridgeStreamParser()
@@ -16,6 +17,7 @@ final class L2CAPStream: NSObject, StreamDelegate, @unchecked Sendable {
     var onClose: ((String) -> Void)?
 
     init(channel: CBL2CAPChannel) {
+        self.channel = channel
         input = channel.inputStream
         output = channel.outputStream
     }
