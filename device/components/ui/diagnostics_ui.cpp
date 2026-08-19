@@ -8,6 +8,10 @@
 namespace bajji {
 namespace {
 
+constexpr int kDisplayDiameter = 466;
+constexpr int kRoundSafeSide = 328;
+static_assert(kRoundSafeSide * kRoundSafeSide * 2 <= kDisplayDiameter * kDisplayDiameter);
+
 lv_obj_t* add_label(lv_obj_t* parent, const char* text) {
     auto* label = lv_label_create(parent);
     lv_obj_set_width(label, LV_PCT(100));
@@ -18,6 +22,7 @@ lv_obj_t* add_label(lv_obj_t* parent, const char* text) {
 
 lv_obj_t* add_button(lv_obj_t* parent, const char* text, lv_event_cb_t callback) {
     auto* button = lv_button_create(parent);
+    lv_obj_set_width(button, LV_PCT(48));
     lv_obj_set_height(button, 48);
     lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, nullptr);
     auto* label = lv_label_create(button);
@@ -59,17 +64,22 @@ void DiagnosticsUI::create() {
     lv_obj_set_style_text_color(screen, lv_color_hex(0xeaf2ff), 0);
 
     auto* root = lv_obj_create(screen);
-    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_size(root, kRoundSafeSide, kRoundSafeSide);
+    lv_obj_center(root);
     lv_obj_set_style_bg_color(root, lv_color_hex(0x080b12), 0);
     lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 20, 0);
-    lv_obj_set_style_pad_row(root, 12, 0);
+    lv_obj_set_style_pad_all(root, 10, 0);
+    lv_obj_set_style_pad_row(root, 8, 0);
     lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_scroll_dir(root, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(root, LV_SCROLLBAR_MODE_AUTO);
 
     auto* title = lv_label_create(root);
+    lv_obj_set_width(title, LV_PCT(100));
     lv_label_set_text(title, "BAJJI / STOPWATCH");
     lv_obj_set_style_text_color(title, lv_color_hex(0x54d7ff), 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
     power_ = add_label(root, "Power: starting");
     display_touch_ = add_label(root, "Display / Touch: starting");
@@ -85,6 +95,7 @@ void DiagnosticsUI::create() {
     lv_obj_set_style_border_width(actions, 0, 0);
     lv_obj_set_style_pad_all(actions, 0, 0);
     lv_obj_set_style_pad_column(actions, 8, 0);
+    lv_obj_set_style_pad_row(actions, 8, 0);
     lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW_WRAP);
     add_button(actions, "Tone + Motor", test_feedback);
     add_button(actions, "Brightness", cycle_brightness);
@@ -93,6 +104,7 @@ void DiagnosticsUI::create() {
 
     auto* hint = add_label(root, "Key A: feedback test    Key B: brightness");
     lv_obj_set_style_text_color(hint, lv_color_hex(0x8290a8), 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 void DiagnosticsUI::refresh(const BoardStatus& status, const ble_link_status_t& link) {

@@ -45,6 +45,8 @@ constexpr gpio_num_t kButtonA = GPIO_NUM_2;
 constexpr gpio_num_t kButtonB = GPIO_NUM_1;
 constexpr gpio_num_t kSpeakerPa = GPIO_NUM_14;
 constexpr int kSampleRate = 44100;
+constexpr int kDisplayPowerAttempts = 3;
+constexpr int kDisplayPowerReadyMs = 80;
 
 i2c_bus_handle_t i2c_bus = nullptr;
 i2c_master_bus_handle_t native_i2c_bus = nullptr;
@@ -197,7 +199,6 @@ bool init_ioe() {
                      M5IOE1_PIN_5, M5IOE1_PIN_1, M5IOE1_PIN_3}) {
         ioe->pinMode(pin, OUTPUT);
     }
-    ioe->digitalWrite(M5IOE1_PIN_8, 1);
     ioe->digitalWrite(M5IOE1_PIN_10, 0);
     ioe->digitalWrite(M5IOE1_PIN_4, 1);
     ioe->digitalWrite(M5IOE1_PIN_5, 1);
@@ -207,7 +208,15 @@ bool init_ioe() {
     ioe->setPwmDuty(0, 0, false, true);
     gpio_set_direction(kSpeakerPa, GPIO_MODE_OUTPUT);
     gpio_set_level(kSpeakerPa, 0);
-    return true;
+
+    for (int attempt = 1; attempt <= kDisplayPowerAttempts; ++attempt) {
+        ioe->digitalWrite(M5IOE1_PIN_8, 1);
+        vTaskDelay(pdMS_TO_TICKS(kDisplayPowerReadyMs));
+        if (ioe->digitalRead(M5IOE1_PIN_8) == 1) return true;
+        ESP_LOGW(kTag, "display power enable retry %d/%d", attempt, kDisplayPowerAttempts);
+    }
+    ESP_LOGE(kTag, "display power rail did not enable");
+    return false;
 }
 
 bool init_touch() {
@@ -428,7 +437,6 @@ esp_err_t BoardHal::init() {
     status_.pmic = init_pmic() ? Health::ok : Health::error;
     status_.io_expander = init_ioe() ? Health::ok : Health::error;
     status_.motor = ioe ? Health::ok : Health::error;
-    vTaskDelay(pdMS_TO_TICKS(50));
     status_.display = init_display_and_lvgl() ? Health::ok : Health::error;
     status_.touch = init_touch() ? Health::ok : Health::error;
     status_.audio = init_audio() ? Health::ok : Health::error;
