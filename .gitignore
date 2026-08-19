@@ -19,6 +19,7 @@ ios/**/DerivedData/
 ios/**/*.xcodeproj/xcuserdata/
 ios/**/*.xcworkspace/xcuserdata/
 ios/**/.build/
+ios/build/
 ios/ThirdParty/
 *.xcuserstate
 

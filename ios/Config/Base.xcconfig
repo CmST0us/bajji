@@ -1,0 +1,9 @@
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
+SWIFT_VERSION = 6.0
+CODE_SIGN_STYLE = Automatic
+DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING = YES
+DEVELOPMENT_TEAM =
+BAJJI_APP_BUNDLE_ID = com.cmstopus.bajji
+BAJJI_TUNNEL_BUNDLE_ID = com.cmstopus.bajji.PacketTunnel
+BAJJI_APP_GROUP = group.com.cmstopus.bajji
+#include? "Local.xcconfig"

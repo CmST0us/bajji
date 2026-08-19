@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import Testing
+#if SWIFT_PACKAGE
 @testable import BridgeCore
+#endif
 
 struct BridgeStreamParserTests {
     private let ping = Data([
