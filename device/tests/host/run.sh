@@ -11,3 +11,10 @@ c++ -std=c++20 -Wall -Wextra -Werror \
   "$test_dir/test_board_math.cpp" \
   -o "$out_dir/test_board_math"
 "$out_dir/test_board_math"
+
+cc -std=c11 -Wall -Wextra -Werror \
+  -I"$device_dir/components/bridge_protocol/include" \
+  "$test_dir/test_bridge_protocol.c" \
+  "$device_dir/components/bridge_protocol/bridge_protocol.c" \
+  -o "$out_dir/test_bridge_protocol"
+"$out_dir/test_bridge_protocol"

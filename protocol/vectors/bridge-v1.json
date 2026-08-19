@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "valid": [
+    {
+      "name": "ping",
+      "chunks": ["ba7701200008002a0102030405060708"],
+      "type": 32,
+      "sequence": 42,
+      "payload": "0102030405060708"
+    },
+    {
+      "name": "split-pong",
+      "chunks": ["ba7701", "210008002b", "0102030405060708"],
+      "type": 33,
+      "sequence": 43,
+      "payload": "0102030405060708"
+    },
+    {
+      "name": "garbage-resync-error",
+      "chunks": ["0011ba", "ba77017f0002002c0001"],
+      "type": 127,
+      "sequence": 44,
+      "payload": "0001"
+    }
+  ],
+  "invalid": [
+    {"name": "wrong-version", "bytes": "ba770220000800000000000000000000"},
+    {"name": "unknown-type", "bytes": "ba77019900000000"},
+    {"name": "oversize-ipv4", "bytes": "ba77011005010000"},
+    {"name": "wrong-ping-length", "bytes": "ba77012000070000"}
+  ]
+}
