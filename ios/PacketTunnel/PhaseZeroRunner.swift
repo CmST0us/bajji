@@ -12,7 +12,7 @@ struct PhaseZeroSnapshot: Codable {
 }
 
 final class PhaseZeroRunner: @unchecked Sendable {
-    private static let windowSize = 4
+    private static let windowSize = 24
     private static let payload: Data = {
         var payload = Data(repeating: 0xA5, count: BridgeFrame.maximumPayload)
         payload.replaceSubrange(0..<20, with: [

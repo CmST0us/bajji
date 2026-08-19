@@ -81,26 +81,26 @@ struct BridgeStreamParserTests {
     }
 
     #if !SWIFT_PACKAGE
-    @Test func phaseZeroKeepsFourFramesInFlight() async throws {
+    @Test func phaseZeroKeepsTwentyFourFramesInFlight() async throws {
         let runner = PhaseZeroRunner()
         let recorder = FrameRecorder()
         runner.start { recorder.append($0) }
-        for _ in 0..<20 where recorder.count < 4 {
+        for _ in 0..<20 where recorder.count < 24 {
             try await Task.sleep(for: .milliseconds(5))
         }
 
-        #expect(recorder.count == 4)
-        #expect(runner.snapshot().inFlightFrames == 4)
+        #expect(recorder.count == 24)
+        #expect(runner.snapshot().inFlightFrames == 24)
 
         runner.receive(try #require(recorder.first))
-        for _ in 0..<20 where recorder.count < 5 {
+        for _ in 0..<20 where recorder.count < 25 {
             try await Task.sleep(for: .milliseconds(5))
         }
 
         let running = runner.snapshot()
-        #expect(recorder.count == 5)
-        #expect(running.inFlightFrames == 4)
-        #expect(running.sentPayloadBytes == UInt64(BridgeFrame.maximumPayload * 5))
+        #expect(recorder.count == 25)
+        #expect(running.inFlightFrames == 24)
+        #expect(running.sentPayloadBytes == UInt64(BridgeFrame.maximumPayload * 25))
         #expect(running.echoedPayloadBytes == UInt64(BridgeFrame.maximumPayload))
 
         runner.stop()

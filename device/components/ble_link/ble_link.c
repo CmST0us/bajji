@@ -461,21 +461,6 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
                 ble_gap_terminate(connection_handle, BLE_ERR_AUTH_FAIL);
                 return 0;
             }
-            {
-                struct ble_gap_upd_params params = {
-                    .itvl_min = 12,
-                    .itvl_max = 12,
-                    .latency = 0,
-                    .supervision_timeout = 400,
-                    .min_ce_len = 0,
-                    .max_ce_len = 0,
-                };
-                ble_gap_update_params(connection_handle, &params);
-            }
-            ble_gap_set_prefered_le_phy(connection_handle, BLE_HCI_LE_PHY_2M_PREF_MASK,
-                                        BLE_HCI_LE_PHY_2M_PREF_MASK, BLE_GAP_LE_PHY_CODED_ANY);
-            ble_gap_set_data_len(connection_handle, 251, 2120);
-            ble_gap_security_initiate(connection_handle);
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(tag, "BLE disconnected: reason=%d", event->disconnect.reason);
@@ -525,6 +510,11 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             portEXIT_CRITICAL(&status_lock);
             ESP_LOGI(tag, "BLE PHY updated: status=%d tx=%u rx=%u", event->phy_updated.status,
                      event->phy_updated.tx_phy, event->phy_updated.rx_phy);
+            return 0;
+        case BLE_GAP_EVENT_DATA_LEN_CHG:
+            ESP_LOGI(tag, "BLE data length updated: tx=%u/%u us rx=%u/%u us",
+                     event->data_len_chg.max_tx_octets, event->data_len_chg.max_tx_time,
+                     event->data_len_chg.max_rx_octets, event->data_len_chg.max_rx_time);
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             advertise();
@@ -593,6 +583,11 @@ static void on_sync(void) {
     if (result != 0) {
         ESP_LOGE(tag, "no BLE identity address");
         return;
+    }
+    result = ble_gap_set_prefered_default_le_phy(BLE_HCI_LE_PHY_2M_PREF_MASK,
+                                                  BLE_HCI_LE_PHY_2M_PREF_MASK);
+    if (result != 0) {
+        ESP_LOGW(tag, "could not set default 2M PHY preference: %d", result);
     }
     if (ble_l2cap_create_server(BAJJI_BRIDGE_PSM, BAJJI_BRIDGE_MTU, l2cap_event, NULL) != 0) {
         ESP_LOGE(tag, "could not create CoC server");
