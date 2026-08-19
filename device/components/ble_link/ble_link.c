@@ -10,10 +10,12 @@
 #include "host/ble_gatt.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
+#include "host/ble_hs_id.h"
 #include "host/ble_l2cap.h"
 #include "host/ble_store.h"
 #include "host/util/util.h"
 #include "nimble/ble.h"
+#include "nimble/nimble_npl.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "nvs.h"
@@ -40,6 +42,8 @@ typedef struct {
 static ble_link_status_t status;
 static portMUX_TYPE status_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t device_id[16];
+static uint8_t identity_address[6];
+static bool identity_address_loaded;
 static uint8_t own_address_type;
 static uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static struct ble_l2cap_chan* coc_channel;
@@ -54,6 +58,10 @@ static bridge_frame_t response_frame;
 static os_membuf_t receive_memory[OS_MEMPOOL_SIZE(kReceiveBufferCount, BAJJI_BRIDGE_MTU)];
 static struct os_mempool receive_pool;
 static struct os_mbuf_pool receive_mbuf_pool;
+static struct ble_npl_event clear_bond_event;
+static struct ble_npl_event advertise_event;
+static bool clear_bond_event_initialized;
+static bool clear_bond_pending;
 
 static void set_bool(bool* field, bool value) {
     portENTER_CRITICAL(&status_lock);
@@ -89,6 +97,31 @@ static esp_err_t load_device_id(void) {
         result = nvs_set_blob(handle, "device_id", device_id, sizeof(device_id));
         if (result == ESP_OK) result = nvs_commit(handle);
     }
+    nvs_close(handle);
+    return result;
+}
+
+static esp_err_t load_identity_address(void) {
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open("bajji_ble", NVS_READONLY, &handle);
+    if (result != ESP_OK) return result;
+    size_t size = sizeof(identity_address);
+    result = nvs_get_blob(handle, "ble_addr", identity_address, &size);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND || size != sizeof(identity_address)) {
+        identity_address_loaded = false;
+        return ESP_OK;
+    }
+    identity_address_loaded = result == ESP_OK;
+    return result;
+}
+
+static esp_err_t save_identity_address(const uint8_t* address) {
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open("bajji_ble", NVS_READWRITE, &handle);
+    if (result != ESP_OK) return result;
+    result = nvs_set_blob(handle, "ble_addr", address, sizeof(identity_address));
+    if (result == ESP_OK) result = nvs_commit(handle);
     nvs_close(handle);
     return result;
 }
@@ -132,6 +165,72 @@ static const struct ble_gatt_svc_def services[] = {
 };
 
 static void advertise(void);
+
+static void advertise_on_host(struct ble_npl_event* event) {
+    (void)event;
+    advertise();
+}
+
+static bool bond_clear_pending(void) {
+    portENTER_CRITICAL(&status_lock);
+    const bool pending = clear_bond_pending;
+    portEXIT_CRITICAL(&status_lock);
+    return pending;
+}
+
+static void finish_bond_clear(void) {
+    ble_addr_t address;
+    int result = ble_hs_id_gen_rnd(0, &address);
+    if (result == 0) {
+        const esp_err_t saved = save_identity_address(address.val);
+        if (saved == ESP_OK) {
+            result = ble_hs_id_set_rnd(address.val);
+            if (result == 0) {
+                memcpy(identity_address, address.val, sizeof(identity_address));
+                identity_address_loaded = true;
+                own_address_type = BLE_OWN_ADDR_RANDOM;
+            }
+        } else {
+            ESP_LOGE(tag, "could not persist new BLE identity: %s", esp_err_to_name(saved));
+            result = BLE_HS_ESTORE_FAIL;
+        }
+    }
+    portENTER_CRITICAL(&status_lock);
+    clear_bond_pending = false;
+    portEXIT_CRITICAL(&status_lock);
+    if (result != 0) ESP_LOGE(tag, "could not rotate BLE identity: %d", result);
+    if (!ble_npl_event_is_queued(&advertise_event)) {
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &advertise_event);
+    }
+}
+
+static void clear_bond_on_host(struct ble_npl_event* event) {
+    (void)event;
+    ble_addr_t peer;
+    if (bonded_peers(&peer) > 0 && ble_store_util_delete_peer(&peer) != 0) {
+        ESP_LOGE(tag, "could not delete bonded peer");
+        portENTER_CRITICAL(&status_lock);
+        clear_bond_pending = false;
+        portEXIT_CRITICAL(&status_lock);
+        return;
+    }
+    portENTER_CRITICAL(&status_lock);
+    status.bonded = false;
+    status.passkey = 0;
+    portEXIT_CRITICAL(&status_lock);
+    if (connection_handle != BLE_HS_CONN_HANDLE_NONE) {
+        const int result = ble_gap_terminate(connection_handle, BLE_ERR_REM_USER_CONN_TERM);
+        if (result != 0) {
+            ESP_LOGE(tag, "could not terminate connection for bond clear: %d", result);
+            portENTER_CRITICAL(&status_lock);
+            clear_bond_pending = false;
+            portEXIT_CRITICAL(&status_lock);
+        }
+        return;
+    }
+    ble_gap_adv_stop();
+    finish_bond_clear();
+}
 
 static int supply_receive_buffer(struct ble_l2cap_chan* channel) {
     struct os_mbuf* buffer = os_mbuf_get_pkthdr(&receive_mbuf_pool, 0);
@@ -205,6 +304,9 @@ static void respond(const bridge_frame_t* received) {
         response_frame.type = BRIDGE_TYPE_PONG;
     } else if (received->type == BRIDGE_TYPE_IPV4) {
         response_frame = *received;  // Phase 0 throughput echo; removed after the feasibility gate.
+    } else if (received->type == BRIDGE_TYPE_CLEAR_BOND) {
+        ble_link_clear_bond();
+        return;
     } else {
         return;
     }
@@ -339,7 +441,11 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             status.passkey = 0;
             status.last_disconnect_reason = event->disconnect.reason;
             portEXIT_CRITICAL(&status_lock);
-            advertise();
+            if (bond_clear_pending()) {
+                finish_bond_clear();
+            } else {
+                advertise();
+            }
             return 0;
         case BLE_GAP_EVENT_CONN_UPDATE:
         case BLE_GAP_EVENT_ENC_CHANGE:
@@ -356,8 +462,14 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
         case BLE_GAP_EVENT_ADV_COMPLETE:
             advertise();
             return 0;
-        case BLE_GAP_EVENT_REPEAT_PAIRING:
-            return BLE_GAP_REPEAT_PAIRING_IGNORE;
+        case BLE_GAP_EVENT_REPEAT_PAIRING: {
+            struct ble_gap_conn_desc desc;
+            if (ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc) != 0) {
+                return BLE_GAP_REPEAT_PAIRING_IGNORE;
+            }
+            ble_store_util_delete_peer(&desc.peer_id_addr);
+            return BLE_GAP_REPEAT_PAIRING_RETRY;
+        }
         case BLE_GAP_EVENT_PASSKEY_ACTION: {
             if (event->passkey.params.action != BLE_SM_IOACT_DISP) return 0;
             struct ble_sm_io passkey;
@@ -402,7 +514,15 @@ static void advertise(void) {
 }
 
 static void on_sync(void) {
-    if (ble_hs_util_ensure_addr(0) != 0 || ble_hs_id_infer_auto(0, &own_address_type) != 0) {
+    int result;
+    if (identity_address_loaded) {
+        result = ble_hs_id_set_rnd(identity_address);
+        own_address_type = BLE_OWN_ADDR_RANDOM;
+    } else {
+        result = ble_hs_util_ensure_addr(0);
+        if (result == 0) result = ble_hs_id_infer_auto(0, &own_address_type);
+    }
+    if (result != 0) {
         ESP_LOGE(tag, "no BLE identity address");
         return;
     }
@@ -421,6 +541,8 @@ static void host_task(void* argument) {
 
 esp_err_t ble_link_start(void) {
     esp_err_t result = load_device_id();
+    if (result != ESP_OK) return result;
+    result = load_identity_address();
     if (result != ESP_OK) return result;
     result = nimble_port_init();
     if (result != ESP_OK) return result;
@@ -445,6 +567,9 @@ esp_err_t ble_link_start(void) {
     ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_store_config_init();
+    ble_npl_event_init(&clear_bond_event, clear_bond_on_host, NULL);
+    ble_npl_event_init(&advertise_event, advertise_on_host, NULL);
+    clear_bond_event_initialized = true;
     nimble_port_freertos_init(host_task);
     return ESP_OK;
 }
@@ -457,14 +582,13 @@ ble_link_status_t ble_link_snapshot(void) {
 }
 
 esp_err_t ble_link_clear_bond(void) {
-    ble_addr_t peer;
-    if (bonded_peers(&peer) > 0 && ble_store_util_delete_peer(&peer) != 0) return ESP_FAIL;
+    if (!clear_bond_event_initialized) return ESP_ERR_INVALID_STATE;
     portENTER_CRITICAL(&status_lock);
-    status.bonded = false;
-    status.passkey = 0;
+    const bool already_pending = clear_bond_pending;
+    clear_bond_pending = true;
     portEXIT_CRITICAL(&status_lock);
-    if (connection_handle != BLE_HS_CONN_HANDLE_NONE) {
-        ble_gap_terminate(connection_handle, BLE_ERR_REM_USER_CONN_TERM);
+    if (!already_pending && !ble_npl_event_is_queued(&clear_bond_event)) {
+        ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &clear_bond_event);
     }
     return ESP_OK;
 }

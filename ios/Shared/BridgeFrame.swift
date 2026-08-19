@@ -20,6 +20,7 @@ struct BridgeFrame: Equatable, Sendable {
         case ipv4 = 0x10
         case ping = 0x20
         case pong = 0x21
+        case clearBond = 0x30
         case error = 0x7F
 
         func accepts(length: Int) -> Bool {
@@ -28,6 +29,7 @@ struct BridgeFrame: Equatable, Sendable {
             case .helloAck: length == 7
             case .ipv4: (20...BridgeFrame.maximumPayload).contains(length)
             case .ping, .pong: length == 8
+            case .clearBond: length == 0
             case .error: length == 2
             }
         }

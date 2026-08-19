@@ -86,7 +86,7 @@ final class TunnelManager {
         }
         do {
             _ = try await send("binding:clear", through: session)
-            detail = "Saved Device ID cleared. Clear the bond on StopWatch too."
+            detail = "Pairing reset requested. Re-pair when prompted; iOS Settings is not required."
         } catch {
             detail = error.localizedDescription
         }

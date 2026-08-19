@@ -70,11 +70,26 @@ static void encodes_frame(void) {
     assert(bridge_encode(&frame, encoded, 15) == 0);
 }
 
+static void clear_bond_frame(void) {
+    bridge_frame_t frame = {.type = BRIDGE_TYPE_CLEAR_BOND, .sequence = 7, .payload_len = 0};
+    uint8_t encoded[BRIDGE_HEADER_SIZE];
+    assert(bridge_encode(&frame, encoded, sizeof(encoded)) == sizeof(encoded));
+
+    bridge_parser_t parser = {0};
+    bridge_frame_t parsed = {0};
+    size_t consumed = 0;
+    assert(bridge_parser_feed(&parser, encoded, sizeof(encoded), &consumed, &parsed) == BRIDGE_FRAME_READY);
+    assert(parsed.type == BRIDGE_TYPE_CLEAR_BOND);
+    assert(parsed.sequence == 7);
+    assert(parsed.payload_len == 0);
+}
+
 int main(void) {
     split_frame();
     coalesced_frames();
     resynchronizes_magic();
     rejects_invalid_headers();
     encodes_frame();
+    clear_bond_frame();
     return 0;
 }

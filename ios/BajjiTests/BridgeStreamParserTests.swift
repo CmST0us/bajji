@@ -47,4 +47,13 @@ struct BridgeStreamParserTests {
         #expect(info.maximumPayload == 1280)
         #expect(info.deviceID == id)
     }
+
+    @Test func encodesAndParsesClearBond() throws {
+        let frame = BridgeFrame(type: .clearBond, sequence: 7, payload: Data())
+        let encoded = try frame.encode()
+        #expect(Array(encoded) == [0xBA, 0x77, 1, 0x30, 0, 0, 0, 7])
+
+        var parser = BridgeStreamParser()
+        #expect(try parser.append(encoded) == [frame])
+    }
 }

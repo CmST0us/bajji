@@ -29,6 +29,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private var connectionCount = 0
     private var shouldReconnect = true
     private var handshakeNonce: Data?
+    private var clearBindingPending = false
 
     var onFrame: ((BridgeFrame) -> Void)?
     var onReady: (() -> Void)?
@@ -65,8 +66,15 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     }
 
     func clearBinding() {
-        defaults.removeObject(forKey: "boundDeviceID")
-        update { $0.deviceID = "" }
+        queue.async { [weak self] in
+            guard let self else { return }
+            clearBindingPending = true
+            if handshakeNonce == nil, stream != nil {
+                sendClearBond()
+            } else {
+                update { $0.state = "pairing reset pending" }
+            }
+        }
     }
 
     private func scan() {
@@ -141,8 +149,23 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             return
         }
         handshakeNonce = nil
+        if clearBindingPending {
+            sendClearBond()
+            return
+        }
         update { $0.state = "L2CAP ready" }
         onReady?()
+    }
+
+    private func sendClearBond() {
+        guard clearBindingPending, let stream else { return }
+        stream.send(BridgeFrame(type: .clearBond, sequence: 0, payload: Data()))
+        clearBindingPending = false
+        defaults.removeObject(forKey: "boundDeviceID")
+        update {
+            $0.deviceID = ""
+            $0.state = "resetting pairing"
+        }
     }
 }
 
