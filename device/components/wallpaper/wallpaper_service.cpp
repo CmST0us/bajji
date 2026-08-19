@@ -265,11 +265,12 @@ esp_err_t download_image(const char* url) {
     return ESP_OK;
 }
 
-esp_err_t replace_file(const char* temporary, const char* final, const char* backup) {
+esp_err_t replace_file(const char* temporary, const char* final, const char* backup,
+                       bool preserve_backup = false) {
     std::remove(backup);
     const bool had_final = std::rename(final, backup) == 0;
     if (std::rename(temporary, final) == 0) {
-        if (had_final) std::remove(backup);
+        if (had_final && !preserve_backup) std::remove(backup);
         return ESP_OK;
     }
     const int saved_errno = errno;
@@ -391,12 +392,20 @@ esp_err_t perform_update() {
         std::remove(kImageTemp);
         return result;
     }
-    result = replace_file(kImageTemp, kImage, kImageBackup);
+    result = replace_file(kImageTemp, kImage, kImageBackup, true);
     if (result != ESP_OK) {
         std::remove(kMetadataTemp);
         return result;
     }
     result = replace_file(kMetadataTemp, kMetadata, kMetadataBackup);
+    if (result != ESP_OK) {
+        std::remove(kImage);
+        if (std::rename(kImageBackup, kImage) != 0 && errno != ENOENT) {
+            ESP_LOGE(tag, "could not restore cached wallpaper after metadata failure");
+        }
+        return result;
+    }
+    std::remove(kImageBackup);
     update_status([&](WallpaperStatus& value) {
         value.has_cache = true;
         value.revision++;
