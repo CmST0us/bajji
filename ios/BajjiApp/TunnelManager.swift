@@ -6,7 +6,9 @@ import Observation
 @MainActor
 @Observable
 final class TunnelManager {
-    private static let providerBundleIdentifier = "com.cmstopus.bajji.PacketTunnel"
+    private static let providerBundleIdentifier = Bundle.main.object(
+        forInfoDictionaryKey: "PacketTunnelProviderBundleIdentifier"
+    ) as! String
     private var manager: NETunnelProviderManager?
 
     var status = "Not installed"

@@ -21,7 +21,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.cmstopus.bajji.packet-tunnel.ble")
     private let snapshotLock = NSLock()
-    private let defaults = UserDefaults(suiteName: "group.com.cmstopus.bajji")!
+    private let defaults = UserDefaults.standard
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var stream: L2CAPStream?
