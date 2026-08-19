@@ -10,7 +10,7 @@ struct PhaseZeroSnapshot: Codable {
 }
 
 final class PhaseZeroRunner: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.cmstopus.bajji.phase-zero")
+    private let queue = DispatchQueue(label: "com.eric3u.bajji.phase-zero")
     private let lock = NSLock()
     private var timer: DispatchSourceTimer?
     private var state = PhaseZeroSnapshot()

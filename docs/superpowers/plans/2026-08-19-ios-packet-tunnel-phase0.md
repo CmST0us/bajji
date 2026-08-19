@@ -96,7 +96,7 @@ Expected: parser and BridgeInfo tests pass.
 
 - [ ] **Step 1: Configure exact targets and entitlements**
 
-App embeds `com.apple.networkextension.packet-tunnel`; both targets share `group.com.cmstopus.bajji`. `Local.xcconfig.example` contains only `DEVELOPMENT_TEAM = YOUR_TEAM_ID`, while `Local.xcconfig` remains ignored.
+App embeds `com.apple.networkextension.packet-tunnel`; both targets share `group.com.eric3u.bajji`. `Local.xcconfig.example` contains only `DEVELOPMENT_TEAM = YOUR_TEAM_ID`, while `Local.xcconfig` remains ignored.
 
 ```xml
 <key>com.apple.developer.networking.networkextension</key>
@@ -107,7 +107,7 @@ App embeds `com.apple.networkextension.packet-tunnel`; both targets share `group
 
 ```swift
 let proto = NETunnelProviderProtocol()
-proto.providerBundleIdentifier = "com.cmstopus.bajji.PacketTunnel"
+proto.providerBundleIdentifier = "com.eric3u.bajji.PacketTunnel"
 proto.serverAddress = "StopWatch BLE"
 manager.protocolConfiguration = proto
 manager.localizedDescription = "Bajji StopWatch Bridge"
@@ -156,7 +156,7 @@ try await setTunnelNetworkSettings(settings)
 
 ```swift
 central = CBCentralManager(delegate: self, queue: queue,
-    options: [CBCentralManagerOptionRestoreIdentifierKey: "com.cmstopus.bajji.packet-tunnel.ble"])
+    options: [CBCentralManagerOptionRestoreIdentifierKey: "com.eric3u.bajji.packet-tunnel.ble"])
 central.scanForPeripherals(withServices: [BridgeUUID.service])
 peripheral.openL2CAPChannel(info.psm)
 ```

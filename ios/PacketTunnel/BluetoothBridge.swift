@@ -19,7 +19,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     static var serviceUUID: CBUUID { CBUUID(string: "6F8F8DB0-9C86-4AC5-A854-3A9E2F20B321") }
     static var infoUUID: CBUUID { CBUUID(string: "6F8F8DB0-9C86-4AC5-A854-3A9E2F20B322") }
 
-    private let queue = DispatchQueue(label: "com.cmstopus.bajji.packet-tunnel.ble")
+    private let queue = DispatchQueue(label: "com.eric3u.bajji.packet-tunnel.ble")
     private let snapshotLock = NSLock()
     private let defaults = UserDefaults.standard
     private var central: CBCentralManager!
@@ -39,7 +39,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             central = CBCentralManager(
                 delegate: self,
                 queue: queue,
-                options: [CBCentralManagerOptionRestoreIdentifierKey: "com.cmstopus.bajji.packet-tunnel.ble"]
+                options: [CBCentralManagerOptionRestoreIdentifierKey: "com.eric3u.bajji.packet-tunnel.ble"]
             )
             update { $0.state = "starting Bluetooth" }
         }
