@@ -3,6 +3,7 @@
 #include "ble_link.h"
 #include "diagnostics_ui.hpp"
 #include "ip_bridge.h"
+#include "wallpaper_service.hpp"
 
 #include <inttypes.h>
 
@@ -21,6 +22,10 @@ extern "C" void app_main() {
         [](bool ready, void*) { ip_bridge_set_link(ready); }, NULL);
     const esp_err_t ble_result = ble_link_start();
     if (ble_result != ESP_OK) ESP_LOGE("main", "BLE init failed: %s", esp_err_to_name(ble_result));
+    const esp_err_t wallpaper_result = bajji::wallpaper_start();
+    if (wallpaper_result != ESP_OK) {
+        ESP_LOGE("main", "wallpaper service incomplete: %s", esp_err_to_name(wallpaper_result));
+    }
 
     bajji::DiagnosticsUI ui;
     if (board.snapshot().display == bajji::Health::ok && board.lvgl_lock()) {
@@ -41,6 +46,8 @@ extern "C" void app_main() {
             board.set_brightness(static_cast<std::uint8_t>((board.brightness() % 100) + 20));
         }
         const ble_link_status_t link = ble_link_snapshot();
+        const ip_bridge_status_t ip = ip_bridge_snapshot();
+        bajji::wallpaper_set_online(ip.link_up && ip.time_valid);
         if (board.lvgl_lock(50)) {
             ui.refresh(board.snapshot(), link);
             board.lvgl_unlock();
