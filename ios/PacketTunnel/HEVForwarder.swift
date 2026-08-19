@@ -104,6 +104,8 @@ final class HEVForwarder: @unchecked Sendable {
         guard wasRunning else { return }
         hev_socks5_tunnel_quit()
         hev_socks5_server_quit()
+        tunnelQueue.sync {}
+        serverQueue.sync {}
         logger.info("forwarder stopped")
     }
 
