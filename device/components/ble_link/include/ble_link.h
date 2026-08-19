@@ -20,6 +20,7 @@ typedef struct {
     bool encrypted;
     bool bonded;
     bool coc_connected;
+    bool bridge_ready;
     uint32_t passkey;
     uint16_t connection_interval_units;
     uint8_t tx_phy;
@@ -36,10 +37,16 @@ typedef struct {
     int32_t last_disconnect_reason;
 } ble_link_status_t;
 
+typedef void (*ble_link_frame_handler_t)(const bridge_frame_t* frame, void* context);
+typedef void (*ble_link_ready_handler_t)(bool ready, void* context);
+
 esp_err_t ble_link_start(void);
 ble_link_status_t ble_link_snapshot(void);
 esp_err_t ble_link_send(const bridge_frame_t* frame);
 esp_err_t ble_link_clear_bond(void);
+esp_err_t ble_link_set_handlers(ble_link_frame_handler_t frame_handler,
+                                ble_link_ready_handler_t ready_handler,
+                                void* context);
 
 #ifdef __cplusplus
 }

@@ -2,6 +2,7 @@
 #include "board_hal.hpp"
 #include "ble_link.h"
 #include "diagnostics_ui.hpp"
+#include "ip_bridge.h"
 
 #include <inttypes.h>
 
@@ -13,6 +14,11 @@ extern "C" void app_main() {
     auto& board = bajji::BoardHal::instance();
     const esp_err_t result = board.init();
     if (result != ESP_OK) ESP_LOGE("main", "board init incomplete: %s", esp_err_to_name(result));
+    const esp_err_t ip_result = ip_bridge_start();
+    if (ip_result != ESP_OK) ESP_LOGE("main", "IP bridge init failed: %s", esp_err_to_name(ip_result));
+    ble_link_set_handlers(
+        [](const bridge_frame_t* frame, void*) { ip_bridge_receive(frame); },
+        [](bool ready, void*) { ip_bridge_set_link(ready); }, NULL);
     const esp_err_t ble_result = ble_link_start();
     if (ble_result != ESP_OK) ESP_LOGE("main", "BLE init failed: %s", esp_err_to_name(ble_result));
 

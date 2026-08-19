@@ -62,9 +62,15 @@ static struct os_mempool receive_pool;
 static struct os_mbuf_pool receive_mbuf_pool;
 static struct ble_npl_event clear_bond_event;
 static struct ble_npl_event advertise_event;
+static struct ble_npl_event tx_event;
 static bool clear_bond_event_initialized;
+static bool tx_event_initialized;
+static bool tx_event_pending;
 static bool clear_bond_pending;
 static bool preferred_phy_pending;
+static ble_link_frame_handler_t frame_handler;
+static ble_link_ready_handler_t ready_handler;
+static void* handler_context;
 
 static void set_bool(bool* field, bool value) {
     portENTER_CRITICAL(&status_lock);
@@ -241,7 +247,12 @@ static int supply_receive_buffer(struct ble_l2cap_chan* channel) {
 }
 
 static void drain_tx(void) {
-    while (coc_channel && tx_count && !tx_stalled) {
+    while (coc_channel && !tx_stalled) {
+        portENTER_CRITICAL(&status_lock);
+        const bool empty = tx_count == 0;
+        portEXIT_CRITICAL(&status_lock);
+        if (empty) return;
+
         queued_frame_t* frame = &tx_queue[tx_head];
         const uint16_t remaining = (uint16_t)(frame->length - frame->offset);
         const uint16_t chunk = remaining < coc_tx_mtu ? remaining : coc_tx_mtu;
@@ -269,17 +280,15 @@ static void drain_tx(void) {
             return;
         }
         if (result == 0 || result == BLE_HS_ESTALLED) {
-            frame->offset = (uint16_t)(frame->offset + chunk);
             portENTER_CRITICAL(&status_lock);
+            frame->offset = (uint16_t)(frame->offset + chunk);
             status.tx_bytes += chunk;
-            portEXIT_CRITICAL(&status_lock);
             if (frame->offset == frame->length) {
                 tx_head = (uint8_t)((tx_head + 1U) % kQueueCapacity);
                 tx_count--;
-                portENTER_CRITICAL(&status_lock);
                 status.tx_frames++;
-                portEXIT_CRITICAL(&status_lock);
             }
+            portEXIT_CRITICAL(&status_lock);
             tx_stalled = result == BLE_HS_ESTALLED;
         } else {
             os_mbuf_free_chain(buffer);
@@ -293,10 +302,34 @@ static void drain_tx(void) {
     }
 }
 
+static void tx_on_host(struct ble_npl_event* event) {
+    (void)event;
+    portENTER_CRITICAL(&status_lock);
+    tx_event_pending = false;
+    portEXIT_CRITICAL(&status_lock);
+    drain_tx();
+}
+
+static void schedule_tx(void) {
+    portENTER_CRITICAL(&status_lock);
+    const bool enqueue = tx_event_initialized && !tx_event_pending;
+    if (enqueue) tx_event_pending = true;
+    portEXIT_CRITICAL(&status_lock);
+    if (enqueue) ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &tx_event);
+}
+
 esp_err_t ble_link_send(const bridge_frame_t* frame) {
-    if (!frame || !coc_channel) return ESP_ERR_INVALID_STATE;
+    if (!frame) return ESP_ERR_INVALID_ARG;
+    uint8_t encoded[BRIDGE_MAX_FRAME_SIZE];
+    const size_t length = bridge_encode(frame, encoded, sizeof(encoded));
+    if (!length) return ESP_ERR_INVALID_ARG;
+
+    portENTER_CRITICAL(&status_lock);
+    if (!status.coc_connected) {
+        portEXIT_CRITICAL(&status_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     if (tx_count == kQueueCapacity) {
-        portENTER_CRITICAL(&status_lock);
         const uint32_t overflows = ++status.queue_overflows;
         portEXIT_CRITICAL(&status_lock);
         if ((overflows & (overflows - 1U)) == 0) {
@@ -305,13 +338,25 @@ esp_err_t ble_link_send(const bridge_frame_t* frame) {
         return ESP_ERR_NO_MEM;
     }
     queued_frame_t* queued = &tx_queue[(tx_head + tx_count) % kQueueCapacity];
-    const size_t length = bridge_encode(frame, queued->bytes, sizeof(queued->bytes));
-    if (!length) return ESP_ERR_INVALID_ARG;
+    memcpy(queued->bytes, encoded, length);
     queued->length = (uint16_t)length;
     queued->offset = 0;
     tx_count++;
-    drain_tx();
+    portEXIT_CRITICAL(&status_lock);
+    schedule_tx();
     return ESP_OK;
+}
+
+static void set_bridge_ready(bool ready) {
+    ble_link_ready_handler_t callback;
+    void* context;
+    portENTER_CRITICAL(&status_lock);
+    const bool changed = status.bridge_ready != ready;
+    status.bridge_ready = ready;
+    callback = ready_handler;
+    context = handler_context;
+    portEXIT_CRITICAL(&status_lock);
+    if (changed && callback) callback(ready, context);
 }
 
 static void respond(const bridge_frame_t* received) {
@@ -330,15 +375,27 @@ static void respond(const bridge_frame_t* received) {
     } else if (received->type == BRIDGE_TYPE_PING) {
         response_frame = *received;
         response_frame.type = BRIDGE_TYPE_PONG;
-    } else if (received->type == BRIDGE_TYPE_IPV4) {
-        response_frame = *received;  // Phase 0 throughput echo; removed after the feasibility gate.
     } else if (received->type == BRIDGE_TYPE_CLEAR_BOND) {
         ble_link_clear_bond();
         return;
     } else {
+        ble_link_frame_handler_t callback;
+        void* context;
+        portENTER_CRITICAL(&status_lock);
+        const bool ready = status.bridge_ready;
+        callback = frame_handler;
+        context = handler_context;
+        portEXIT_CRITICAL(&status_lock);
+        if (ready && callback && (received->type == BRIDGE_TYPE_IPV4 ||
+                                  received->type == BRIDGE_TYPE_TIME_SYNC)) {
+            callback(received, context);
+        }
         return;
     }
-    ble_link_send(&response_frame);
+    if (ble_link_send(&response_frame) == ESP_OK && received->type == BRIDGE_TYPE_HELLO &&
+        response_frame.payload[6] == 0) {
+        set_bridge_ready(true);
+    }
 }
 
 static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
@@ -361,6 +418,7 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             }
             coc_channel = event->connect.chan;
             bridge_parser_reset(&parser);
+            set_bridge_ready(false);
             struct ble_l2cap_chan_info info;
             if (ble_l2cap_get_chan_info(coc_channel, &info) == 0) {
                 coc_tx_mtu = info.peer_coc_mtu;
@@ -428,12 +486,13 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             if (event->tx_unstalled.status == 0) drain_tx();
             return 0;
         case BLE_L2CAP_EVENT_COC_DISCONNECTED:
+            set_bridge_ready(false);
             coc_channel = NULL;
             coc_tx_mtu = 0;
-            tx_head = tx_count = 0;
             tx_stalled = false;
             preferred_phy_pending = false;
             portENTER_CRITICAL(&status_lock);
+            tx_head = tx_count = 0;
             status.coc_connected = false;
             status.peer_coc_mtu = 0;
             status.peer_mps = 0;
@@ -477,13 +536,14 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(tag, "BLE disconnected: reason=%d", event->disconnect.reason);
+            set_bridge_ready(false);
             connection_handle = BLE_HS_CONN_HANDLE_NONE;
             coc_channel = NULL;
             coc_tx_mtu = 0;
-            tx_head = tx_count = 0;
             tx_stalled = false;
             preferred_phy_pending = false;
             portENTER_CRITICAL(&status_lock);
+            tx_head = tx_count = 0;
             status.connected = false;
             status.encrypted = false;
             status.coc_connected = false;
@@ -671,7 +731,9 @@ esp_err_t ble_link_start(void) {
     ble_store_config_init();
     ble_npl_event_init(&clear_bond_event, clear_bond_on_host, NULL);
     ble_npl_event_init(&advertise_event, advertise_on_host, NULL);
+    ble_npl_event_init(&tx_event, tx_on_host, NULL);
     clear_bond_event_initialized = true;
+    tx_event_initialized = true;
     nimble_port_freertos_init(host_task);
     return ESP_OK;
 }
@@ -692,5 +754,16 @@ esp_err_t ble_link_clear_bond(void) {
     if (!already_pending && !ble_npl_event_is_queued(&clear_bond_event)) {
         ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &clear_bond_event);
     }
+    return ESP_OK;
+}
+
+esp_err_t ble_link_set_handlers(ble_link_frame_handler_t next_frame_handler,
+                                ble_link_ready_handler_t next_ready_handler,
+                                void* context) {
+    portENTER_CRITICAL(&status_lock);
+    frame_handler = next_frame_handler;
+    ready_handler = next_ready_handler;
+    handler_context = context;
+    portEXIT_CRITICAL(&status_lock);
     return ESP_OK;
 }
