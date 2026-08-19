@@ -127,11 +127,11 @@ flowchart LR
 起始依赖与官方 Demo 对齐：
 
 - LVGL 9.5.0；
-- M5GFX 0.2.19；
+- M5GFX 0.2.27（ESP-IDF 6.0 兼容提交 `93b480bb349749202c8a2a953065c8ae95f58320`）；
 - M5IOE1 1.0.8；
 - M5PM1 1.0.6；
 - BMI270/BMM150 Sensor 0.1.2；
-- ESP-IDF 自带 lwIP 与 Bluedroid。
+- ESP-IDF 自带 lwIP 与 NimBLE。ESP-IDF 6.0 的公开 LE L2CAP CoC server API 由 NimBLE 提供；Bluedroid 仅用于其公开支持的场景，不作为本项目数据面。
 
 所有 Git 依赖必须锁定到确切提交，构建不能跟随浮动分支。复用代码保留原 MIT 版权与 SPDX 标头。ESP-IDF 5.5.4 到 6.0 的兼容改动局限在依赖补丁或 `board_hal`，不向 UI 和网络层泄漏。
 
