@@ -36,11 +36,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     func start() {
         queue.async { [weak self] in
             guard let self else { return }
-            central = CBCentralManager(
-                delegate: self,
-                queue: queue,
-                options: [CBCentralManagerOptionRestoreIdentifierKey: "com.eric3u.bajji.packet-tunnel.ble"]
-            )
+            central = CBCentralManager(delegate: self, queue: queue)
             update { $0.state = "starting Bluetooth" }
         }
     }
@@ -156,13 +152,6 @@ extension BluetoothBridge: CBCentralManagerDelegate {
             scan()
         } else {
             update { $0.state = "Bluetooth \(central.state.rawValue)" }
-        }
-    }
-
-    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
-        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]
-        if let peripheral = restored?.first {
-            connect(peripheral)
         }
     }
 
