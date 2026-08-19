@@ -64,6 +64,7 @@ static struct ble_npl_event clear_bond_event;
 static struct ble_npl_event advertise_event;
 static bool clear_bond_event_initialized;
 static bool clear_bond_pending;
+static bool preferred_phy_pending;
 
 static void set_bool(bool* field, bool value) {
     portENTER_CRITICAL(&status_lock);
@@ -370,6 +371,16 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
                 portEXIT_CRITICAL(&status_lock);
                 ESP_LOGI(tag, "CoC ready: peer_mtu=%u peer_mps=%u", info.peer_coc_mtu,
                          info.peer_l2cap_mtu);
+                preferred_phy_pending = true;
+                const int result = ble_gap_set_prefered_le_phy(
+                    connection_handle, BLE_HCI_LE_PHY_2M_PREF_MASK,
+                    BLE_HCI_LE_PHY_2M_PREF_MASK, BLE_GAP_LE_PHY_CODED_ANY);
+                if (result == 0) {
+                    ESP_LOGI(tag, "requested 2M PHY; 15 ms request will follow PHY completion");
+                } else {
+                    preferred_phy_pending = false;
+                    ESP_LOGW(tag, "could not request 2M PHY: %d", result);
+                }
             } else {
                 ESP_LOGE(tag, "could not read CoC channel information");
                 ble_l2cap_disconnect(coc_channel);
@@ -421,6 +432,7 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             coc_tx_mtu = 0;
             tx_head = tx_count = 0;
             tx_stalled = false;
+            preferred_phy_pending = false;
             portENTER_CRITICAL(&status_lock);
             status.coc_connected = false;
             status.peer_coc_mtu = 0;
@@ -454,6 +466,7 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
                 return 0;
             }
             connection_handle = event->connect.conn_handle;
+            preferred_phy_pending = false;
             ESP_LOGI(tag, "BLE connected: handle=%u", connection_handle);
             set_bool(&status.advertising, false);
             update_connection_status(connection_handle);
@@ -469,6 +482,7 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             coc_tx_mtu = 0;
             tx_head = tx_count = 0;
             tx_stalled = false;
+            preferred_phy_pending = false;
             portENTER_CRITICAL(&status_lock);
             status.connected = false;
             status.encrypted = false;
@@ -503,14 +517,37 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
                      event->enc_change.status, encrypted, bonded);
             return 0;
         }
-        case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+        case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE: {
             portENTER_CRITICAL(&status_lock);
             status.tx_phy = event->phy_updated.tx_phy;
             status.rx_phy = event->phy_updated.rx_phy;
             portEXIT_CRITICAL(&status_lock);
             ESP_LOGI(tag, "BLE PHY updated: status=%d tx=%u rx=%u", event->phy_updated.status,
                      event->phy_updated.tx_phy, event->phy_updated.rx_phy);
+            if (!preferred_phy_pending || event->phy_updated.conn_handle != connection_handle) {
+                return 0;
+            }
+            preferred_phy_pending = false;
+            if (event->phy_updated.status != 0) {
+                ESP_LOGW(tag, "not requesting 15 ms after failed PHY update");
+                return 0;
+            }
+            const struct ble_gap_upd_params params = {
+                .itvl_min = 12,
+                .itvl_max = 12,
+                .latency = 0,
+                .supervision_timeout = 400,
+                .min_ce_len = 0,
+                .max_ce_len = 0,
+            };
+            const int result = ble_gap_update_params(connection_handle, &params);
+            if (result == 0) {
+                ESP_LOGI(tag, "requested 15 ms connection interval");
+            } else {
+                ESP_LOGW(tag, "could not request 15 ms connection interval: %d", result);
+            }
             return 0;
+        }
         case BLE_GAP_EVENT_DATA_LEN_CHG:
             ESP_LOGI(tag, "BLE data length updated: tx=%u/%u us rx=%u/%u us",
                      event->data_len_chg.max_tx_octets, event->data_len_chg.max_tx_time,
