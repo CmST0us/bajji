@@ -105,6 +105,8 @@ Phase Zero 的 `IPV4` echo 从正式运行路径删除。吞吐 echo 只保留�
 
 仓库提交幂等 bootstrap/build 脚本、Xcode 接线和许可证说明，不提交生成的 `ThirdParty` build 目录。
 
+两个上游静态库包含同名的内部 config、logger、YAML 和 task-system 符号。bootstrap 在生成 XCFramework 后计算两个 archive 的已定义全局符号交集，只对 server archive 的冲突内部符号执行确定性 `bajji_server_` 前缀重写；`hev_socks5_server_*` 公开 API 保持不变。该步骤必须对每个 device/simulator slice 执行并用 `nm` 验证交集为空，避免链接顺序把 server 调用解析到 tunnel 实现。
+
 PacketPipe：
 
 - `socketpair(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0, ...)`；
