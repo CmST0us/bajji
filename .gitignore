@@ -11,6 +11,7 @@ device/build/
 device/sdkconfig
 device/sdkconfig.old
 device/managed_components/
+device/vendor/
 
 # Xcode and SwiftPM
 DerivedData/
@@ -18,6 +19,7 @@ ios/**/DerivedData/
 ios/**/*.xcodeproj/xcuserdata/
 ios/**/*.xcworkspace/xcuserdata/
 ios/**/.build/
+ios/ThirdParty/
 *.xcuserstate
 
 # Local signing and machine-specific configuration

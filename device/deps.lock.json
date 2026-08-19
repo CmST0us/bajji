@@ -1,0 +1,25 @@
+{
+  "BMI270_BMM150_Sensor": {
+    "ref": "ae8bc480bca638d3458e65d5e9a4fff4270c1430",
+    "submodules": true,
+    "url": "https://github.com/lbuque/BMI270_BMM150_Sensor.git"
+  },
+  "M5GFX": {
+    "ref": "93b480bb349749202c8a2a953065c8ae95f58320",
+    "url": "https://github.com/m5stack/M5GFX.git"
+  },
+  "M5IOE1": {
+    "patch": "M5IOE1.patch",
+    "ref": "37db04861687858b6748f5dbd1a84439a6635c46",
+    "url": "https://github.com/m5stack/M5IOE1.git"
+  },
+  "M5PM1": {
+    "patch": "M5PM1.patch",
+    "ref": "8f1f1a60b3040088cd0ca2b9eb9d024ccc4d907f",
+    "url": "https://github.com/m5stack/M5PM1.git"
+  },
+  "lvgl": {
+    "ref": "85aa60d18b3d5e5588d7b247abf90198f07c8a63",
+    "url": "https://github.com/lvgl/lvgl.git"
+  }
+}
