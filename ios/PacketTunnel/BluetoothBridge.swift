@@ -30,9 +30,11 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private var shouldReconnect = true
     private var handshakeNonce: Data?
     private var clearBindingPending = false
+    private var bridgeReady = false
 
     var onFrame: ((BridgeFrame) -> Void)?
     var onReady: (() -> Void)?
+    var onUnavailable: (() -> Void)?
 
     func start() {
         queue.async { [weak self] in
@@ -46,6 +48,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             shouldReconnect = false
+            setReady(false)
             stream?.stop()
             if let peripheral { central?.cancelPeripheralConnection(peripheral) }
             central?.stopScan()
@@ -63,6 +66,13 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     func snapshot() -> BluetoothSnapshot {
         queue.async { [weak self] in self?.peripheral?.readRSSI() }
         return snapshotLock.withLock { currentSnapshot }
+    }
+
+    func whenReady(_ action: @escaping @Sendable () -> Void) {
+        queue.async { [weak self] in
+            guard self?.bridgeReady == true else { return }
+            action()
+        }
     }
 
     func clearBinding() {
@@ -95,6 +105,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     }
 
     private func fail(_ message: String, reconnect: Bool = true) {
+        setReady(false)
         update {
             $0.state = "error"
             $0.lastError = message
@@ -105,6 +116,12 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
 
     private func update(_ change: (inout BluetoothSnapshot) -> Void) {
         snapshotLock.withLock { change(&currentSnapshot) }
+    }
+
+    private func setReady(_ ready: Bool) {
+        guard bridgeReady != ready else { return }
+        bridgeReady = ready
+        if !ready { onUnavailable?() }
     }
 
     private func useBridgeInfo(_ data: Data) {
@@ -153,12 +170,14 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             sendClearBond()
             return
         }
+        setReady(true)
         update { $0.state = "L2CAP ready" }
         onReady?()
     }
 
     private func sendClearBond() {
         guard clearBindingPending, let stream else { return }
+        setReady(false)
         stream.send(BridgeFrame(type: .clearBond, sequence: 0, payload: Data()))
         clearBindingPending = false
         defaults.removeObject(forKey: "boundDeviceID")
@@ -174,6 +193,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
         if central.state == .poweredOn {
             scan()
         } else {
+            setReady(false)
             update { $0.state = "Bluetooth \(central.state.rawValue)" }
         }
     }
@@ -203,6 +223,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
                         timestamp: CFAbsoluteTime, isReconnecting: Bool, error: Error?) {
+        setReady(false)
         stream?.stop()
         stream = nil
         self.peripheral = nil
@@ -264,6 +285,7 @@ extension BluetoothBridge: CBPeripheralDelegate {
         stream.onClose = { [weak self] reason in
             self?.queue.async { [weak self] in
                 guard let self else { return }
+                setReady(false)
                 update {
                     $0.state = "stream closed"
                     $0.lastError = reason

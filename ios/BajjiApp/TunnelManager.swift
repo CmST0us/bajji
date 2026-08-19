@@ -78,6 +78,17 @@ final class TunnelManager {
         }
     }
 
+    func applyPhaseZeroSetting() async {
+        guard let session = manager?.connection as? NETunnelProviderSession,
+              session.status == .connected else { return }
+        do {
+            _ = try await send(phaseZeroOnStart ? "phase0:start" : "phase0:stop", through: session)
+            detail = phaseZeroOnStart ? "Phase 0 echo requested." : "Phase 0 echo stopped."
+        } catch {
+            detail = error.localizedDescription
+        }
+    }
+
     func clearBinding() async {
         guard let session = manager?.connection as? NETunnelProviderSession,
               session.status == .connected else {

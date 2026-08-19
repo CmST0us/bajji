@@ -19,6 +19,7 @@
 		809E29E6FFBD1C6589DA717E /* BridgeInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */; };
 		8C555AA899EE8DDC1271E7D5 /* BridgeStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D9B41820ABD0FACE4D9C9 /* BridgeStreamParser.swift */; };
 		AD3DFA09A7051B1C001AC367 /* BridgeStreamParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68334B16A8886E2B1C95885 /* BridgeStreamParserTests.swift */; };
+		A6E5A70F7ECF4EFD83BC0071 /* PhaseZeroRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69725B1EF4F41DF1CCDB8E16 /* PhaseZeroRunner.swift */; };
 		AEAFD208DFE676FBCBA090F3 /* BridgeStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D9B41820ABD0FACE4D9C9 /* BridgeStreamParser.swift */; };
 		C166944DAE3B09D038C52E90 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1009E531CB853590DF45A160 /* Foundation.framework */; };
 		C54FDA9910544268CF45AFFC /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6644BBC4F39FA0CA4D510226 /* ContentView.swift */; };
@@ -328,6 +329,7 @@
 				056795858F61C911DAE909E8 /* BridgeFrame.swift in Sources */,
 				E353E5CE008539FC104C496C /* BridgeStreamParser.swift in Sources */,
 				0BCCEB0055026922243A56F3 /* BridgeInfo.swift in Sources */,
+				A6E5A70F7ECF4EFD83BC0071 /* PhaseZeroRunner.swift in Sources */,
 				AD3DFA09A7051B1C001AC367 /* BridgeStreamParserTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

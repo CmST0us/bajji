@@ -56,4 +56,22 @@ struct BridgeStreamParserTests {
         var parser = BridgeStreamParser()
         #expect(try parser.append(encoded) == [frame])
     }
+
+    #if !SWIFT_PACKAGE
+    @Test func phaseZeroGeneratesAndCountsEcho() async throws {
+        let runner = PhaseZeroRunner()
+        await withCheckedContinuation { continuation in
+            runner.start { frame in
+                runner.receive(frame)
+                runner.stop()
+                continuation.resume()
+            }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let snapshot = runner.snapshot()
+        #expect(snapshot.sentPayloadBytes == UInt64(BridgeFrame.maximumPayload))
+        #expect(snapshot.echoedPayloadBytes == UInt64(BridgeFrame.maximumPayload))
+    }
+    #endif
 }

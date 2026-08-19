@@ -5,12 +5,13 @@ import Foundation
 final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     private var bridge: BluetoothBridge?
     private let phaseZero = PhaseZeroRunner()
+    private let phaseZeroLock = NSLock()
     private var phaseZeroRequested = false
 
     override func startTunnel(options: [String: NSObject]?,
                               completionHandler: @escaping (Error?) -> Void) {
         let completion = TunnelStartCompletion(completionHandler)
-        phaseZeroRequested = (options?["phaseZero"] as? NSNumber)?.boolValue ?? false
+        setPhaseZeroRequested((options?["phaseZero"] as? NSNumber)?.boolValue ?? false)
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.77.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.77.0.1"], subnetMasks: ["255.255.255.252"])
@@ -27,9 +28,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
             let bridge = BluetoothBridge()
             bridge.onFrame = { [weak self] frame in self?.phaseZero.receive(frame) }
             bridge.onReady = { [weak self, weak bridge] in
-                guard let self, phaseZeroRequested, let bridge else { return }
+                guard let self, phaseZeroIsRequested(), let bridge else { return }
                 phaseZero.start { [weak bridge] frame in bridge?.send(frame) }
             }
+            bridge.onUnavailable = { [weak self] in self?.phaseZero.stop() }
             self.bridge = bridge
             bridge.start()
             completion.call(nil)
@@ -38,6 +40,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
 
     override func stopTunnel(with reason: NEProviderStopReason,
                              completionHandler: @escaping () -> Void) {
+        setPhaseZeroRequested(false)
         phaseZero.stop()
         bridge?.stop()
         bridge = nil
@@ -48,9 +51,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
                                    completionHandler: ((Data?) -> Void)? = nil) {
         switch String(data: messageData, encoding: .utf8) {
         case "phase0:start":
-            if let bridge { phaseZero.start { [weak bridge] frame in bridge?.send(frame) } }
+            setPhaseZeroRequested(true)
+            startPhaseZeroIfReady()
             completionHandler?(Data("ok".utf8))
         case "phase0:stop":
+            setPhaseZeroRequested(false)
             phaseZero.stop()
             completionHandler?(Data("ok".utf8))
         case "binding:clear":
@@ -65,6 +70,22 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             completionHandler?(try? encoder.encode(snapshot))
         }
+    }
+
+    private func startPhaseZeroIfReady() {
+        guard let bridge else { return }
+        bridge.whenReady { [weak self, weak bridge] in
+            guard let self, phaseZeroIsRequested(), let bridge else { return }
+            phaseZero.start { [weak bridge] frame in bridge?.send(frame) }
+        }
+    }
+
+    private func setPhaseZeroRequested(_ requested: Bool) {
+        phaseZeroLock.withLock { phaseZeroRequested = requested }
+    }
+
+    private func phaseZeroIsRequested() -> Bool {
+        phaseZeroLock.withLock { phaseZeroRequested }
     }
 }
 
