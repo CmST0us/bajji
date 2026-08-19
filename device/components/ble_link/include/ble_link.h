@@ -34,6 +34,9 @@ typedef struct {
     uint32_t queue_overflows;
     uint32_t tx_errors;
     uint32_t protocol_errors;
+    uint32_t pings_sent;
+    uint32_t pongs_received;
+    uint32_t last_ping_rtt_ms;
     int32_t last_disconnect_reason;
 } ble_link_status_t;
 
@@ -43,6 +46,7 @@ typedef void (*ble_link_ready_handler_t)(bool ready, void* context);
 esp_err_t ble_link_start(void);
 ble_link_status_t ble_link_snapshot(void);
 esp_err_t ble_link_send(const bridge_frame_t* frame);
+esp_err_t ble_link_ping(void);
 esp_err_t ble_link_clear_bond(void);
 esp_err_t ble_link_set_handlers(ble_link_frame_handler_t frame_handler,
                                 ble_link_ready_handler_t ready_handler,

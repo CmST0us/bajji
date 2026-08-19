@@ -33,3 +33,9 @@ cc -std=c11 -Wall -Wextra -Werror \
   "$device_dir/components/wallpaper/wallpaper_format.c" \
   -o "$out_dir/test_wallpaper_format"
 "$out_dir/test_wallpaper_format"
+
+c++ -std=c++20 -Wall -Wextra -Werror \
+  -I"$device_dir/components/board_hal" \
+  "$test_dir/test_button_state.cpp" \
+  -o "$out_dir/test_button_state"
+"$out_dir/test_button_state"

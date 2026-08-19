@@ -61,7 +61,8 @@ public:
     void shutdown();
 
     bool button_a_pressed();
-    bool button_b_pressed();
+    bool button_b_short_pressed();
+    bool button_b_long_pressed();
     bool lvgl_lock(std::uint32_t timeout_ms = 1000);
     void lvgl_unlock();
 

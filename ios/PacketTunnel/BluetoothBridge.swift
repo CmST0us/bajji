@@ -161,6 +161,12 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
 
     private func handle(_ frame: BridgeFrame) {
         guard let nonce = handshakeNonce else {
+            if frame.type == .ping {
+                stream?.send(BridgeFrame(type: .pong, sequence: frame.sequence,
+                                         payload: frame.payload))
+                logger.info("answered device PING: sequence=\(frame.sequence)")
+                return
+            }
             onFrame?(frame)
             return
         }

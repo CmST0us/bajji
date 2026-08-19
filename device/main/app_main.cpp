@@ -42,14 +42,17 @@ extern "C" void app_main() {
             board.vibrate(80, 60);
             board.play_tone(880, 80);
         }
-        if (board.button_b_pressed()) {
+        if (board.button_b_short_pressed()) {
             board.set_brightness(static_cast<std::uint8_t>((board.brightness() % 100) + 20));
         }
+        const bool show_tools = board.button_b_long_pressed();
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();
         bajji::wallpaper_set_online(ip.link_up && ip.time_valid);
+        const bajji::WallpaperStatus wallpaper = bajji::wallpaper_snapshot();
         if (board.lvgl_lock(50)) {
-            ui.refresh(board.snapshot(), link);
+            if (show_tools) ui.toggle_tools();
+            ui.refresh(board.snapshot(), link, ip, wallpaper);
             board.lvgl_unlock();
         }
         const TickType_t now = xTaskGetTickCount();

@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "host/ble_gatt.h"
 #include "host/ble_gap.h"
@@ -71,6 +72,7 @@ static bool preferred_phy_pending;
 static ble_link_frame_handler_t frame_handler;
 static ble_link_ready_handler_t ready_handler;
 static void* handler_context;
+static uint16_t ping_sequence;
 
 static void set_bool(bool* field, bool value) {
     portENTER_CRITICAL(&status_lock);
@@ -375,6 +377,19 @@ static void respond(const bridge_frame_t* received) {
     } else if (received->type == BRIDGE_TYPE_PING) {
         response_frame = *received;
         response_frame.type = BRIDGE_TYPE_PONG;
+    } else if (received->type == BRIDGE_TYPE_PONG) {
+        uint64_t sent_ms = 0;
+        for (size_t index = 0; index < 8; ++index) {
+            sent_ms = (sent_ms << 8U) | received->payload[index];
+        }
+        const uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000U;
+        portENTER_CRITICAL(&status_lock);
+        status.pongs_received++;
+        status.last_ping_rtt_ms = now_ms >= sent_ms && now_ms - sent_ms <= UINT32_MAX
+                                      ? (uint32_t)(now_ms - sent_ms)
+                                      : 0;
+        portEXIT_CRITICAL(&status_lock);
+        return;
     } else if (received->type == BRIDGE_TYPE_CLEAR_BOND) {
         ble_link_clear_bond();
         return;
@@ -743,6 +758,26 @@ ble_link_status_t ble_link_snapshot(void) {
     ble_link_status_t snapshot = status;
     portEXIT_CRITICAL(&status_lock);
     return snapshot;
+}
+
+esp_err_t ble_link_ping(void) {
+    bridge_frame_t frame = {.type = BRIDGE_TYPE_PING, .payload_len = 8};
+    const uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000U;
+    portENTER_CRITICAL(&status_lock);
+    const bool ready = status.bridge_ready;
+    frame.sequence = ping_sequence++;
+    portEXIT_CRITICAL(&status_lock);
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    for (size_t index = 0; index < 8; ++index) {
+        frame.payload[index] = (uint8_t)(now_ms >> ((7U - index) * 8U));
+    }
+    const esp_err_t result = ble_link_send(&frame);
+    if (result == ESP_OK) {
+        portENTER_CRITICAL(&status_lock);
+        status.pings_sent++;
+        portEXIT_CRITICAL(&status_lock);
+    }
+    return result;
 }
 
 esp_err_t ble_link_clear_bond(void) {

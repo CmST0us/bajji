@@ -12,6 +12,7 @@ inline constexpr const char* kWallpaperLvglPath = "S:/wallpaper.jpg";
 struct WallpaperStatus {
     bool mounted{};
     bool online{};
+    bool internet_verified{};
     bool busy{};
     bool has_cache{};
     std::uint32_t revision{};

@@ -419,6 +419,7 @@ void run_dns_test() {
             std::snprintf(value.test_result, sizeof(value.test_result), "DNS: failed (%d)", result);
         }
         value.last_error = result;
+        value.internet_verified = result == 0;
     });
     ESP_LOGI(tag, "DNS test: %s (%d)", result == 0 ? "passed" : "failed", result);
 }
@@ -430,6 +431,7 @@ void run_https_test() {
         std::snprintf(value.test_result, sizeof(value.test_result), "HTTPS: %s",
                       result == ESP_OK ? "Bing metadata verified" : esp_err_to_name(result));
         value.last_error = result;
+        value.internet_verified = result == ESP_OK;
     });
     ESP_LOGI(tag, "HTTPS test: %s", esp_err_to_name(result));
 }
@@ -465,6 +467,7 @@ void worker(void*) {
         if (result == ESP_OK) {
             failures = 0;
             next_attempt = now + pdMS_TO_TICKS(kSuccessCheckSeconds * 1000U);
+            update_status([](WallpaperStatus& value) { value.internet_verified = true; });
             ESP_LOGI(tag, "wallpaper check complete");
         } else {
             const size_t retry_index = failures < std::size(kRetrySeconds) ? failures
@@ -476,6 +479,7 @@ void worker(void*) {
             std::snprintf(message, sizeof(message), "Retry in %lu min: %s",
                           static_cast<unsigned long>((retry + 59) / 60), esp_err_to_name(result));
             set_result(result, message);
+            update_status([](WallpaperStatus& value) { value.internet_verified = false; });
             ESP_LOGE(tag, "wallpaper update failed: %s; retry in %lu s", esp_err_to_name(result),
                      static_cast<unsigned long>(retry));
         }
@@ -508,6 +512,7 @@ void wallpaper_set_online(bool online_and_time_valid) {
     update_status([&](WallpaperStatus& value) {
         changed = value.online != online_and_time_valid;
         value.online = online_and_time_valid;
+        if (!online_and_time_valid) value.internet_verified = false;
         if (!online_and_time_valid && !value.busy) {
             copy_text(value.state, sizeof(value.state), value.has_cache ? "Offline - cached wallpaper"
                                                                        : "Waiting for phone bridge");

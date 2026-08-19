@@ -18,6 +18,7 @@
 #include "audio_codec_if.h"
 #include "audio_codec_ctrl_if.h"
 #include "board_math.hpp"
+#include "button_state.hpp"
 #include "bmi270_bmm150.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -59,9 +60,8 @@ SemaphoreHandle_t lvgl_mutex = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
 bool audio_busy = false;
 bool button_a_latched = false;
-bool button_b_latched = false;
 bool button_a_previous = false;
-bool button_b_previous = false;
+ButtonState button_b;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
 std::int64_t sensor_poll_us = 0;
@@ -456,9 +456,8 @@ void BoardHal::poll() {
     const bool a = gpio_get_level(kButtonA) == 0;
     const bool b = gpio_get_level(kButtonB) == 0;
     button_a_latched |= a && !button_a_previous;
-    button_b_latched |= b && !button_b_previous;
+    button_b.update(b, static_cast<std::uint64_t>(now / 1000));
     button_a_previous = a;
-    button_b_previous = b;
 
     if (motor_stop_us && now >= motor_stop_us) stop_vibration();
     if (status_.touch == Health::ok) status_.touch_point = read_touch();
@@ -558,11 +557,9 @@ bool BoardHal::button_a_pressed() {
     return result;
 }
 
-bool BoardHal::button_b_pressed() {
-    const bool result = button_b_latched;
-    button_b_latched = false;
-    return result;
-}
+bool BoardHal::button_b_short_pressed() { return button_b.take_short_press(); }
+
+bool BoardHal::button_b_long_pressed() { return button_b.take_long_press(); }
 
 bool BoardHal::lvgl_lock(std::uint32_t timeout_ms) {
     return lvgl_mutex && xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
