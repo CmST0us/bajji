@@ -64,7 +64,7 @@
 		69725B1EF4F41DF1CCDB8E16 /* PhaseZeroRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhaseZeroRunner.swift; sourceTree = "<group>"; };
 		70FAC9034EBBF3F02347A7CF /* PacketTunnel.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = PacketTunnel.entitlements; sourceTree = "<group>"; };
 		76248FB037A7A23EE7520C92 /* L2CAPStream.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = L2CAPStream.swift; sourceTree = "<group>"; };
-		76EFC4E91BF8782ACD0EEDB0 /* Local.xcconfig.example */ = {isa = PBXFileReference; includeInIndex = 1; path = Local.xcconfig.example; sourceTree = "<group>"; };
+		76EFC4E91BF8782ACD0EEDB0 /* Local.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text; path = Local.xcconfig; sourceTree = "<group>"; };
 		79B0CB6261E05362770BB50C /* Bajji.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bajji.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0B5A9EA7333C472AE6191C /* BajjiApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BajjiApp.swift; sourceTree = "<group>"; };
 		803465D45EA3BA8AF8E2ABF6 /* Base.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
@@ -126,7 +126,6 @@
 				C73D9B41820ABD0FACE4D9C9 /* BridgeStreamParser.swift */,
 				1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */,
 			);
-			name = Shared;
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -135,7 +134,6 @@
 			children = (
 				D68334B16A8886E2B1C95885 /* BridgeStreamParserTests.swift */,
 			);
-			name = BajjiTests;
 			path = BajjiTests;
 			sourceTree = "<group>";
 		};
@@ -153,9 +151,8 @@
 			isa = PBXGroup;
 			children = (
 				803465D45EA3BA8AF8E2ABF6 /* Base.xcconfig */,
-				76EFC4E91BF8782ACD0EEDB0 /* Local.xcconfig.example */,
+				76EFC4E91BF8782ACD0EEDB0 /* Local.xcconfig */,
 			);
-			name = Config;
 			path = Config;
 			sourceTree = "<group>";
 		};
@@ -169,7 +166,6 @@
 				678D5AF134970685E162F3F0 /* Info.plist */,
 				70FAC9034EBBF3F02347A7CF /* PacketTunnel.entitlements */,
 			);
-			name = PacketTunnel;
 			path = PacketTunnel;
 			sourceTree = "<group>";
 		};
@@ -190,7 +186,6 @@
 				BB4B81A1D237B2046DC619EB /* Info.plist */,
 				3D162380CAAA053EBBE49B37 /* Bajji.entitlements */,
 			);
-			name = BajjiApp;
 			path = BajjiApp;
 			sourceTree = "<group>";
 		};
@@ -266,6 +261,20 @@
 			attributes = {
 				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					2AA54A78E12CE900C0412D49 = {
+						DevelopmentTeam = 2VQ94C2355;
+						ProvisioningStyle = Manual;
+					};
+					5AEAF4B713E175790C1EB32A = {
+						DevelopmentTeam = 2VQ94C2355;
+						ProvisioningStyle = Manual;
+					};
+					B93B5F7B1CB30B5847169B46 = {
+						DevelopmentTeam = 2VQ94C2355;
+						ProvisioningStyle = Automatic;
+					};
+				};
 			};
 			buildConfigurationList = 85FC4FEB7A32BE44CC50D6EB /* Build configuration list for PBXProject "Bajji" */;
 			compatibilityVersion = "Xcode 3.2";
@@ -369,11 +378,17 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 2VQ94C2355;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BAJJI_TUNNEL_BUNDLE_ID)";
 				PRODUCT_NAME = PacketTunnel;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = Bajji.PacketTunnel;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -404,11 +419,17 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = PacketTunnel/PacketTunnel.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 2VQ94C2355;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PacketTunnel/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BAJJI_TUNNEL_BUNDLE_ID)";
 				PRODUCT_NAME = PacketTunnel;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = Bajji.PacketTunnel;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -440,12 +461,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BajjiApp/Bajji.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 2VQ94C2355;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BajjiApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BAJJI_APP_BUNDLE_ID)";
 				PRODUCT_NAME = Bajji;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = Bajji;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -461,12 +488,18 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = BajjiApp/Bajji.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 2VQ94C2355;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BajjiApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(BAJJI_APP_BUNDLE_ID)";
 				PRODUCT_NAME = Bajji;
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = Bajji;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -523,8 +556,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_OPTIMIZATION_LEVEL = "-Owholemodule";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
