@@ -8,6 +8,16 @@
 
 /* Begin PBXBuildFile section */
 		056795858F61C911DAE909E8 /* BridgeFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF73FB0EA417573A84C95F22 /* BridgeFrame.swift */; };
+		061A00000000000000000001 /* IPv4Packet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000101 /* IPv4Packet.swift */; };
+		061A00000000000000000002 /* IPv4Packet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000101 /* IPv4Packet.swift */; };
+		061A00000000000000000003 /* PacketPipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000102 /* PacketPipe.swift */; };
+		061A00000000000000000004 /* PacketPipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000102 /* PacketPipe.swift */; };
+		061A00000000000000000005 /* HEVForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000103 /* HEVForwarder.swift */; };
+		061A00000000000000000006 /* IPForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000104 /* IPForwarder.swift */; };
+		061A00000000000000000007 /* IPv4PacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000105 /* IPv4PacketTests.swift */; };
+		061A00000000000000000008 /* PacketPipeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000106 /* PacketPipeTests.swift */; };
+		061A00000000000000000009 /* HevSocks5Tunnel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000107 /* HevSocks5Tunnel.xcframework */; };
+		061A0000000000000000000A /* HevSocks5Server.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 061A00000000000000000108 /* HevSocks5Server.xcframework */; };
 		0BCCEB0055026922243A56F3 /* BridgeInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */; };
 		159B671F89CF552584D53E4A /* PhaseZeroRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69725B1EF4F41DF1CCDB8E16 /* PhaseZeroRunner.swift */; };
 		1799F3156EEF3AFAA897832B /* BridgeFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF73FB0EA417573A84C95F22 /* BridgeFrame.swift */; };
@@ -57,6 +67,14 @@
 
 /* Begin PBXFileReference section */
 		1009E531CB853590DF45A160 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS14.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		061A00000000000000000101 /* IPv4Packet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IPv4Packet.swift; sourceTree = "<group>"; };
+		061A00000000000000000102 /* PacketPipe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PacketPipe.swift; sourceTree = "<group>"; };
+		061A00000000000000000103 /* HEVForwarder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HEVForwarder.swift; sourceTree = "<group>"; };
+		061A00000000000000000104 /* IPForwarder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IPForwarder.swift; sourceTree = "<group>"; };
+		061A00000000000000000105 /* IPv4PacketTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IPv4PacketTests.swift; sourceTree = "<group>"; };
+		061A00000000000000000106 /* PacketPipeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PacketPipeTests.swift; sourceTree = "<group>"; };
+		061A00000000000000000107 /* HevSocks5Tunnel.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = ThirdParty/HevSocks5Tunnel.xcframework; sourceTree = SOURCE_ROOT; };
+		061A00000000000000000108 /* HevSocks5Server.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = ThirdParty/HevSocks5Server.xcframework; sourceTree = SOURCE_ROOT; };
 		1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeInfo.swift; sourceTree = "<group>"; };
 		2CAA04CCAC98DC4267EDF131 /* BluetoothBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BluetoothBridge.swift; sourceTree = "<group>"; };
 		3D162380CAAA053EBBE49B37 /* Bajji.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Bajji.entitlements; sourceTree = "<group>"; };
@@ -84,6 +102,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				061A00000000000000000009 /* HevSocks5Tunnel.xcframework in Frameworks */,
+				061A0000000000000000000A /* HevSocks5Server.xcframework in Frameworks */,
 				F6C67C77B72693474155B1A8 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -126,6 +146,8 @@
 				EF73FB0EA417573A84C95F22 /* BridgeFrame.swift */,
 				C73D9B41820ABD0FACE4D9C9 /* BridgeStreamParser.swift */,
 				1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */,
+				061A00000000000000000101 /* IPv4Packet.swift */,
+				061A00000000000000000102 /* PacketPipe.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -134,6 +156,8 @@
 			isa = PBXGroup;
 			children = (
 				D68334B16A8886E2B1C95885 /* BridgeStreamParserTests.swift */,
+				061A00000000000000000105 /* IPv4PacketTests.swift */,
+				061A00000000000000000106 /* PacketPipeTests.swift */,
 			);
 			path = BajjiTests;
 			sourceTree = "<group>";
@@ -164,6 +188,8 @@
 				2CAA04CCAC98DC4267EDF131 /* BluetoothBridge.swift */,
 				76248FB037A7A23EE7520C92 /* L2CAPStream.swift */,
 				69725B1EF4F41DF1CCDB8E16 /* PhaseZeroRunner.swift */,
+				061A00000000000000000103 /* HEVForwarder.swift */,
+				061A00000000000000000104 /* IPForwarder.swift */,
 				678D5AF134970685E162F3F0 /* Info.plist */,
 				70FAC9034EBBF3F02347A7CF /* PacketTunnel.entitlements */,
 			);
@@ -193,6 +219,8 @@
 		CCC662A6E6CD13301D1B4777 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				061A00000000000000000107 /* HevSocks5Tunnel.xcframework */,
+				061A00000000000000000108 /* HevSocks5Server.xcframework */,
 				842FF66A291C3AA345B22CA5 /* iOS */,
 			);
 			name = Frameworks;
@@ -331,6 +359,10 @@
 				0BCCEB0055026922243A56F3 /* BridgeInfo.swift in Sources */,
 				A6E5A70F7ECF4EFD83BC0071 /* PhaseZeroRunner.swift in Sources */,
 				AD3DFA09A7051B1C001AC367 /* BridgeStreamParserTests.swift in Sources */,
+				061A00000000000000000002 /* IPv4Packet.swift in Sources */,
+				061A00000000000000000004 /* PacketPipe.swift in Sources */,
+				061A00000000000000000007 /* IPv4PacketTests.swift in Sources */,
+				061A00000000000000000008 /* PacketPipeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -358,6 +390,10 @@
 				1799F3156EEF3AFAA897832B /* BridgeFrame.swift in Sources */,
 				AEAFD208DFE676FBCBA090F3 /* BridgeStreamParser.swift in Sources */,
 				D10E0268798D8382E5B545AA /* BridgeInfo.swift in Sources */,
+				061A00000000000000000001 /* IPv4Packet.swift in Sources */,
+				061A00000000000000000003 /* PacketPipe.swift in Sources */,
+				061A00000000000000000005 /* HEVForwarder.swift in Sources */,
+				061A00000000000000000006 /* IPForwarder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
