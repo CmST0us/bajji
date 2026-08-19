@@ -36,6 +36,7 @@ static const ble_uuid128_t info_uuid = BLE_UUID128_INIT(
 
 typedef struct {
     uint16_t length;
+    uint16_t offset;
     uint8_t bytes[BRIDGE_MAX_FRAME_SIZE];
 } queued_frame_t;
 
@@ -52,6 +53,7 @@ static queued_frame_t tx_queue[kQueueCapacity];
 static uint8_t tx_head;
 static uint8_t tx_count;
 static bool tx_stalled;
+static uint16_t coc_tx_mtu;
 static uint8_t receive_bytes[BAJJI_BRIDGE_MTU];
 static bridge_frame_t receive_frame;
 static bridge_frame_t response_frame;
@@ -240,12 +242,24 @@ static int supply_receive_buffer(struct ble_l2cap_chan* channel) {
 static void drain_tx(void) {
     while (coc_channel && tx_count && !tx_stalled) {
         queued_frame_t* frame = &tx_queue[tx_head];
-        struct os_mbuf* buffer = os_msys_get_pkthdr(frame->length, 0);
-        if (!buffer || os_mbuf_append(buffer, frame->bytes, frame->length) != 0) {
-            if (buffer) os_mbuf_free_chain(buffer);
+        const uint16_t remaining = (uint16_t)(frame->length - frame->offset);
+        const uint16_t chunk = remaining < coc_tx_mtu ? remaining : coc_tx_mtu;
+        if (chunk == 0) {
+            ESP_LOGE(tag, "cannot send CoC frame without a peer MTU");
             portENTER_CRITICAL(&status_lock);
-            status.dropped_frames++;
+            status.tx_errors++;
             portEXIT_CRITICAL(&status_lock);
+            ble_l2cap_disconnect(coc_channel);
+            return;
+        }
+        struct os_mbuf* buffer = os_msys_get_pkthdr(chunk, 0);
+        if (!buffer || os_mbuf_append(buffer, frame->bytes + frame->offset, chunk) != 0) {
+            if (buffer) os_mbuf_free_chain(buffer);
+            ESP_LOGE(tag, "could not allocate %u-byte CoC TX chunk", chunk);
+            portENTER_CRITICAL(&status_lock);
+            status.tx_errors++;
+            portEXIT_CRITICAL(&status_lock);
+            ble_l2cap_disconnect(coc_channel);
             return;
         }
         const int result = ble_l2cap_send(coc_channel, buffer);
@@ -253,18 +267,27 @@ static void drain_tx(void) {
             os_mbuf_free_chain(buffer);
             return;
         }
-        tx_head = (uint8_t)((tx_head + 1U) % kQueueCapacity);
-        tx_count--;
         if (result == 0 || result == BLE_HS_ESTALLED) {
+            frame->offset = (uint16_t)(frame->offset + chunk);
             portENTER_CRITICAL(&status_lock);
-            status.tx_bytes += frame->length;
-            status.tx_frames++;
+            status.tx_bytes += chunk;
             portEXIT_CRITICAL(&status_lock);
+            if (frame->offset == frame->length) {
+                tx_head = (uint8_t)((tx_head + 1U) % kQueueCapacity);
+                tx_count--;
+                portENTER_CRITICAL(&status_lock);
+                status.tx_frames++;
+                portEXIT_CRITICAL(&status_lock);
+            }
             tx_stalled = result == BLE_HS_ESTALLED;
         } else {
+            os_mbuf_free_chain(buffer);
+            ESP_LOGE(tag, "CoC TX failed: %d", result);
             portENTER_CRITICAL(&status_lock);
-            status.dropped_frames++;
+            status.tx_errors++;
             portEXIT_CRITICAL(&status_lock);
+            ble_l2cap_disconnect(coc_channel);
+            return;
         }
     }
 }
@@ -273,14 +296,18 @@ esp_err_t ble_link_send(const bridge_frame_t* frame) {
     if (!frame || !coc_channel) return ESP_ERR_INVALID_STATE;
     if (tx_count == kQueueCapacity) {
         portENTER_CRITICAL(&status_lock);
-        status.dropped_frames++;
+        const uint32_t overflows = ++status.queue_overflows;
         portEXIT_CRITICAL(&status_lock);
+        if ((overflows & (overflows - 1U)) == 0) {
+            ESP_LOGW(tag, "CoC TX queue full; overflows=%" PRIu32, overflows);
+        }
         return ESP_ERR_NO_MEM;
     }
     queued_frame_t* queued = &tx_queue[(tx_head + tx_count) % kQueueCapacity];
     const size_t length = bridge_encode(frame, queued->bytes, sizeof(queued->bytes));
     if (!length) return ESP_ERR_INVALID_ARG;
     queued->length = (uint16_t)length;
+    queued->offset = 0;
     tx_count++;
     drain_tx();
     return ESP_OK;
@@ -320,21 +347,32 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             struct ble_gap_conn_desc desc;
             if (ble_gap_conn_find(event->accept.conn_handle, &desc) != 0 ||
                 !desc.sec_state.encrypted || !desc.sec_state.bonded || !peer_allowed(event->accept.conn_handle)) {
+                ESP_LOGW(tag, "rejected unauthenticated CoC connection");
                 return BLE_HS_EAUTHEN;
             }
+            ESP_LOGI(tag, "accepted CoC connection");
             return supply_receive_buffer(event->accept.chan);
         }
         case BLE_L2CAP_EVENT_COC_CONNECTED: {
-            if (event->connect.status != 0) return 0;
+            if (event->connect.status != 0) {
+                ESP_LOGE(tag, "CoC connection failed: %d", event->connect.status);
+                return 0;
+            }
             coc_channel = event->connect.chan;
             bridge_parser_reset(&parser);
             struct ble_l2cap_chan_info info;
             if (ble_l2cap_get_chan_info(coc_channel, &info) == 0) {
+                coc_tx_mtu = info.peer_coc_mtu;
                 portENTER_CRITICAL(&status_lock);
                 status.coc_connected = true;
                 status.peer_coc_mtu = info.peer_coc_mtu;
                 status.peer_mps = info.peer_l2cap_mtu;
                 portEXIT_CRITICAL(&status_lock);
+                ESP_LOGI(tag, "CoC ready: peer_mtu=%u peer_mps=%u", info.peer_coc_mtu,
+                         info.peer_l2cap_mtu);
+            } else {
+                ESP_LOGE(tag, "could not read CoC channel information");
+                ble_l2cap_disconnect(coc_channel);
             }
             return 0;
         }
@@ -343,6 +381,7 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             if (length > sizeof(receive_bytes) ||
                 os_mbuf_copydata(event->receive.sdu_rx, 0, length, receive_bytes) != 0) {
                 os_mbuf_free_chain(event->receive.sdu_rx);
+                ESP_LOGE(tag, "invalid CoC RX SDU: length=%u", length);
                 ble_l2cap_disconnect(event->receive.chan);
                 return BLE_HS_EBADDATA;
             }
@@ -360,6 +399,7 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
                     portENTER_CRITICAL(&status_lock);
                     status.protocol_errors++;
                     portEXIT_CRITICAL(&status_lock);
+                    ESP_LOGE(tag, "bridge protocol error after %zu/%u RX bytes", offset, length);
                     ble_l2cap_disconnect(event->receive.chan);
                     return BLE_HS_EBADDATA;
                 }
@@ -378,9 +418,15 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             return 0;
         case BLE_L2CAP_EVENT_COC_DISCONNECTED:
             coc_channel = NULL;
+            coc_tx_mtu = 0;
             tx_head = tx_count = 0;
             tx_stalled = false;
-            set_bool(&status.coc_connected, false);
+            portENTER_CRITICAL(&status_lock);
+            status.coc_connected = false;
+            status.peer_coc_mtu = 0;
+            status.peer_mps = 0;
+            portEXIT_CRITICAL(&status_lock);
+            ESP_LOGI(tag, "CoC disconnected");
             return 0;
         default:
             return 0;
@@ -403,10 +449,12 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
     switch (event->type) {
         case BLE_GAP_EVENT_CONNECT:
             if (event->connect.status != 0) {
+                ESP_LOGW(tag, "BLE connection failed: %d", event->connect.status);
                 advertise();
                 return 0;
             }
             connection_handle = event->connect.conn_handle;
+            ESP_LOGI(tag, "BLE connected: handle=%u", connection_handle);
             set_bool(&status.advertising, false);
             update_connection_status(connection_handle);
             if (!peer_allowed(connection_handle)) {
@@ -430,14 +478,18 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             ble_gap_security_initiate(connection_handle);
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
+            ESP_LOGI(tag, "BLE disconnected: reason=%d", event->disconnect.reason);
             connection_handle = BLE_HS_CONN_HANDLE_NONE;
             coc_channel = NULL;
+            coc_tx_mtu = 0;
             tx_head = tx_count = 0;
             tx_stalled = false;
             portENTER_CRITICAL(&status_lock);
             status.connected = false;
             status.encrypted = false;
             status.coc_connected = false;
+            status.peer_coc_mtu = 0;
+            status.peer_mps = 0;
             status.passkey = 0;
             status.last_disconnect_reason = event->disconnect.reason;
             portEXIT_CRITICAL(&status_lock);
@@ -447,17 +499,32 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
                 advertise();
             }
             return 0;
-        case BLE_GAP_EVENT_CONN_UPDATE:
-        case BLE_GAP_EVENT_ENC_CHANGE:
-            update_connection_status(event->type == BLE_GAP_EVENT_CONN_UPDATE
-                                         ? event->conn_update.conn_handle
-                                         : event->enc_change.conn_handle);
+        case BLE_GAP_EVENT_CONN_UPDATE: {
+            update_connection_status(event->conn_update.conn_handle);
+            portENTER_CRITICAL(&status_lock);
+            const uint16_t interval = status.connection_interval_units;
+            portEXIT_CRITICAL(&status_lock);
+            ESP_LOGI(tag, "BLE connection parameters updated: status=%d interval=%.2f ms",
+                     event->conn_update.status, (double)interval * 1.25);
             return 0;
+        }
+        case BLE_GAP_EVENT_ENC_CHANGE: {
+            update_connection_status(event->enc_change.conn_handle);
+            portENTER_CRITICAL(&status_lock);
+            const bool encrypted = status.encrypted;
+            const bool bonded = status.bonded;
+            portEXIT_CRITICAL(&status_lock);
+            ESP_LOGI(tag, "BLE security updated: status=%d encrypted=%d bonded=%d",
+                     event->enc_change.status, encrypted, bonded);
+            return 0;
+        }
         case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
             portENTER_CRITICAL(&status_lock);
             status.tx_phy = event->phy_updated.tx_phy;
             status.rx_phy = event->phy_updated.rx_phy;
             portEXIT_CRITICAL(&status_lock);
+            ESP_LOGI(tag, "BLE PHY updated: status=%d tx=%u rx=%u", event->phy_updated.status,
+                     event->phy_updated.tx_phy, event->phy_updated.rx_phy);
             return 0;
         case BLE_GAP_EVENT_ADV_COMPLETE:
             advertise();
@@ -510,6 +577,7 @@ static void advertise(void) {
     params.disc_mode = BLE_GAP_DISC_MODE_GEN;
     if (ble_gap_adv_start(own_address_type, NULL, BLE_HS_FOREVER, &params, gap_event, NULL) == 0) {
         set_bool(&status.advertising, true);
+        ESP_LOGI(tag, "advertising bridge service");
     }
 }
 
@@ -530,6 +598,8 @@ static void on_sync(void) {
         ESP_LOGE(tag, "could not create CoC server");
         return;
     }
+    ESP_LOGI(tag, "CoC server ready: psm=0x%04x rx_mtu=%u", BAJJI_BRIDGE_PSM,
+             BAJJI_BRIDGE_MTU);
     advertise();
 }
 

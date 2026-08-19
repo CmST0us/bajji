@@ -3,6 +3,33 @@ import Foundation
 import NetworkExtension
 import Observation
 
+struct TunnelDiagnostics: Decodable {
+    let bluetooth: BluetoothDiagnostics
+    let phaseZero: PhaseZeroDiagnostics
+}
+
+struct BluetoothDiagnostics: Decodable {
+    let state: String
+    let deviceID: String
+    let psm: UInt16
+    let maximumPayload: UInt16
+    let rssi: Int
+    let receivedBytes: UInt64
+    let sentBytes: UInt64
+    let reconnects: Int
+    let queueOverflows: Int
+    let lastError: String
+}
+
+struct PhaseZeroDiagnostics: Decodable {
+    let running: Bool
+    let sentPayloadBytes: UInt64
+    let echoedPayloadBytes: UInt64
+    let elapsedSeconds: Double
+    let echoedKilobytesPerSecond: Double
+    let inFlightFrames: Int
+}
+
 @MainActor
 @Observable
 final class TunnelManager {
@@ -13,6 +40,7 @@ final class TunnelManager {
 
     var status = "Not installed"
     var detail = "Install the VPN profile, then start the bridge."
+    var diagnostics: TunnelDiagnostics?
     var phaseZeroOnStart = true
     var isBusy = false
 
@@ -67,11 +95,12 @@ final class TunnelManager {
         guard let session = manager?.connection as? NETunnelProviderSession,
               session.status == .connected else {
             status = manager.map { statusText($0.connection.status) } ?? "Not installed"
+            diagnostics = nil
             return
         }
         do {
             let data = try await send("snapshot", through: session)
-            detail = String(data: data, encoding: .utf8) ?? "No diagnostic snapshot"
+            diagnostics = try JSONDecoder().decode(TunnelDiagnostics.self, from: data)
             status = statusText(session.status)
         } catch {
             detail = error.localizedDescription

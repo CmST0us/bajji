@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "diagnostics_ui.hpp"
 
+#include <cstdio>
 #include <inttypes.h>
 
 #include "lvgl.h"
@@ -11,6 +12,25 @@ namespace {
 constexpr int kDisplayDiameter = 466;
 constexpr int kRoundSafeSide = 328;
 static_assert(kRoundSafeSide * kRoundSafeSide * 2 <= kDisplayDiameter * kDisplayDiameter);
+
+const char* phy_text(std::uint8_t phy) {
+    switch (phy) {
+        case 1: return "1M";
+        case 2: return "2M";
+        case 3: return "CODED";
+        default: return "--";
+    }
+}
+
+void format_bytes(std::uint64_t bytes, char* output, std::size_t size) {
+    if (bytes >= 1024ULL * 1024ULL) {
+        std::snprintf(output, size, "%.2f MiB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    } else if (bytes >= 1024ULL) {
+        std::snprintf(output, size, "%.1f KiB", static_cast<double>(bytes) / 1024.0);
+    } else {
+        std::snprintf(output, size, "%llu B", static_cast<unsigned long long>(bytes));
+    }
+}
 
 lv_obj_t* add_label(lv_obj_t* parent, const char* text) {
     auto* label = lv_label_create(parent);
@@ -123,19 +143,27 @@ void DiagnosticsUI::refresh(const BoardStatus& status, const ble_link_status_t& 
                           static_cast<double>(status.imu_sample.accel_z), health_text(status.rtc),
                           status.rtc_text.data());
     if (link.passkey) {
-        lv_label_set_text_fmt(ble_, "BLE: enter passkey %06" PRIu32, link.passkey);
+        lv_label_set_text_fmt(ble_, "BLE PAIRING\nEnter %06" PRIu32 " on iPhone", link.passkey);
     } else if (link.connected) {
-        lv_label_set_text_fmt(ble_, "BLE: %s%s  PHY %u/%u  interval %.2f ms",
+        lv_label_set_text_fmt(ble_, "BLE  %s | %s\nPHY %s/%s | %.2f ms",
                               link.encrypted ? "encrypted" : "connected",
-                              link.bonded ? " / bonded" : "", link.tx_phy, link.rx_phy,
+                              link.bonded ? "bonded" : "not bonded", phy_text(link.tx_phy),
+                              phy_text(link.rx_phy),
                               static_cast<double>(link.connection_interval_units) * 1.25);
     } else {
-        lv_label_set_text(ble_, link.advertising ? "BLE: advertising" : "BLE: starting");
+        lv_label_set_text(ble_, link.advertising ? "BLE  advertising" : "BLE  starting");
     }
-    lv_label_set_text_fmt(bridge_, "Bridge: %s  MTU %u / MPS %u\nRX %llu B / TX %llu B / dropped %" PRIu32,
-                          link.coc_connected ? "Phase 0 echo" : "offline", link.peer_coc_mtu, link.peer_mps,
-                          (unsigned long long)link.rx_bytes, (unsigned long long)link.tx_bytes,
-                          link.dropped_frames);
+    char rx[24];
+    char tx[24];
+    format_bytes(link.rx_bytes, rx, sizeof(rx));
+    format_bytes(link.tx_bytes, tx, sizeof(tx));
+    lv_label_set_text_fmt(
+        bridge_,
+        "BRIDGE  %s\nCoC MTU %u | MPS %u\nRX %s | %" PRIu32 " frames\nTX %s | %" PRIu32
+        " frames\nQueue %" PRIu32 " | TX err %" PRIu32 " | Proto %" PRIu32,
+        link.coc_connected ? "PHASE 0 ECHO" : "OFFLINE", link.peer_coc_mtu, link.peer_mps,
+        rx, link.rx_frames, tx, link.tx_frames, link.queue_overflows, link.tx_errors,
+        link.protocol_errors);
 }
 
 }  // namespace bajji

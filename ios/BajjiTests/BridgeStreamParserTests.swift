@@ -5,6 +5,15 @@ import Testing
 @testable import BridgeCore
 #endif
 
+private final class FrameRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames: [BridgeFrame] = []
+
+    func append(_ frame: BridgeFrame) { lock.withLock { frames.append(frame) } }
+    var count: Int { lock.withLock { frames.count } }
+    var first: BridgeFrame? { lock.withLock { frames.first } }
+}
+
 struct BridgeStreamParserTests {
     private let ping = Data([
         0xBA, 0x77, 0x01, 0x20, 0x00, 0x08, 0x00, 0x2A,
@@ -21,6 +30,20 @@ struct BridgeStreamParserTests {
         let frames = try parser.append(ping + ping)
         #expect(frames.count == 2)
         #expect(frames.allSatisfy { $0.type == .ping })
+    }
+
+    @Test func reassemblesMaximumFrameAcrossPeerMTU() throws {
+        let frame = BridgeFrame(
+            type: .ipv4,
+            sequence: 7,
+            payload: Data(repeating: 0xA5, count: BridgeFrame.maximumPayload)
+        )
+        let encoded = try frame.encode()
+        var parser = BridgeStreamParser()
+
+        #expect(encoded.count == 1288)
+        #expect(try parser.append(encoded.prefix(1251)).isEmpty)
+        #expect(try parser.append(encoded.dropFirst(1251)) == [frame])
     }
 
     @Test func rejectsMalformedHeaderAndOversizePayload() throws {
@@ -58,20 +81,29 @@ struct BridgeStreamParserTests {
     }
 
     #if !SWIFT_PACKAGE
-    @Test func phaseZeroGeneratesAndCountsEcho() async throws {
+    @Test func phaseZeroKeepsFourFramesInFlight() async throws {
         let runner = PhaseZeroRunner()
-        await withCheckedContinuation { continuation in
-            runner.start { frame in
-                runner.receive(frame)
-                runner.stop()
-                continuation.resume()
-            }
+        let recorder = FrameRecorder()
+        runner.start { recorder.append($0) }
+        for _ in 0..<20 where recorder.count < 4 {
+            try await Task.sleep(for: .milliseconds(5))
         }
-        try await Task.sleep(for: .milliseconds(20))
 
-        let snapshot = runner.snapshot()
-        #expect(snapshot.sentPayloadBytes == UInt64(BridgeFrame.maximumPayload))
-        #expect(snapshot.echoedPayloadBytes == UInt64(BridgeFrame.maximumPayload))
+        #expect(recorder.count == 4)
+        #expect(runner.snapshot().inFlightFrames == 4)
+
+        runner.receive(try #require(recorder.first))
+        for _ in 0..<20 where recorder.count < 5 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        let running = runner.snapshot()
+        #expect(recorder.count == 5)
+        #expect(running.inFlightFrames == 4)
+        #expect(running.sentPayloadBytes == UInt64(BridgeFrame.maximumPayload * 5))
+        #expect(running.echoedPayloadBytes == UInt64(BridgeFrame.maximumPayload))
+
+        runner.stop()
     }
     #endif
 }

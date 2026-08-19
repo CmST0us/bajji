@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 @preconcurrency import CoreBluetooth
 import Foundation
+import OSLog
 
 struct BluetoothSnapshot: Codable {
     var state = "idle"
@@ -11,7 +12,7 @@ struct BluetoothSnapshot: Codable {
     var receivedBytes: UInt64 = 0
     var sentBytes: UInt64 = 0
     var reconnects = 0
-    var droppedFrames = 0
+    var queueOverflows = 0
     var lastError = ""
 }
 
@@ -22,6 +23,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.eric3u.bajji.packet-tunnel.ble")
     private let snapshotLock = NSLock()
     private let defaults = UserDefaults.standard
+    private let logger = Logger(subsystem: "com.eric3u.bajji", category: "Bluetooth")
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var stream: L2CAPStream?
@@ -39,6 +41,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     func start() {
         queue.async { [weak self] in
             guard let self else { return }
+            logger.info("starting Core Bluetooth central")
             central = CBCentralManager(delegate: self, queue: queue)
             update { $0.state = "starting Bluetooth" }
         }
@@ -53,6 +56,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             if let peripheral { central?.cancelPeripheralConnection(peripheral) }
             central?.stopScan()
             update { $0.state = "stopped" }
+            logger.info("stopped")
         }
     }
 
@@ -90,6 +94,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private func scan() {
         guard central.state == .poweredOn else { return }
         update { $0.state = "scanning" }
+        logger.info("scanning for StopWatch bridge")
         central.scanForPeripherals(withServices: [Self.serviceUUID], options: [
             CBCentralManagerScanOptionAllowDuplicatesKey: false
         ])
@@ -101,6 +106,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
         peripheral.delegate = self
         central.stopScan()
         update { $0.state = "connecting" }
+        logger.info("connecting: peripheral=\(peripheral.identifier.uuidString, privacy: .public)")
         central.connect(peripheral)
     }
 
@@ -110,6 +116,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             $0.state = "error"
             $0.lastError = message
         }
+        logger.error("bridge failure: \(message, privacy: .public)")
         shouldReconnect = reconnect
         if let peripheral { central.cancelPeripheralConnection(peripheral) }
     }
@@ -145,6 +152,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
                 $0.maximumPayload = info.maximumPayload
                 $0.state = "opening L2CAP CoC"
             }
+            logger.info("BridgeInfo ready: psm=\(info.psm) max_payload=\(info.maximumPayload)")
             peripheral?.openL2CAPChannel(CBL2CAPPSM(info.psm))
         } catch {
             fail("Invalid BridgeInfo: \(error)", reconnect: false)
@@ -172,6 +180,7 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
         }
         setReady(true)
         update { $0.state = "L2CAP ready" }
+        logger.info("HELLO accepted; L2CAP bridge ready")
         onReady?()
     }
 
@@ -185,11 +194,13 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             $0.deviceID = ""
             $0.state = "resetting pairing"
         }
+        logger.info("sent clear-bond request")
     }
 }
 
 extension BluetoothBridge: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        logger.info("central state changed: \(central.state.rawValue)")
         if central.state == .poweredOn {
             scan()
         } else {
@@ -206,6 +217,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         connectionCount += 1
+        logger.info("connected: peripheral=\(peripheral.identifier.uuidString, privacy: .public) attempt=\(self.connectionCount)")
         update {
             $0.state = "discovering encrypted BridgeInfo"
             $0.reconnects = max(0, connectionCount - 1)
@@ -217,7 +229,9 @@ extension BluetoothBridge: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral,
                         error: Error?) {
         self.peripheral = nil
-        update { $0.lastError = error?.localizedDescription ?? "connection failed" }
+        let message = error?.localizedDescription ?? "connection failed"
+        update { $0.lastError = message }
+        logger.error("connection failed: \(message, privacy: .public)")
         if shouldReconnect { scan() }
     }
 
@@ -231,6 +245,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
             $0.state = "disconnected"
             if let error { $0.lastError = error.localizedDescription }
         }
+        logger.info("disconnected: reconnecting=\(isReconnecting) error=\(error?.localizedDescription ?? "none", privacy: .public)")
         if shouldReconnect {
             queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.scan() }
         }
@@ -271,6 +286,7 @@ extension BluetoothBridge: CBPeripheralDelegate {
             fail(error?.localizedDescription ?? "L2CAP CoC open failed")
             return
         }
+        logger.info("L2CAP channel opened: psm=\(channel.psm)")
         let stream = L2CAPStream(channel: channel)
         stream.onFrame = { [weak self] frame in
             self?.queue.async { [weak self] in self?.handle(frame) }
@@ -281,7 +297,7 @@ extension BluetoothBridge: CBPeripheralDelegate {
                 $0.sentBytes += UInt64(sent)
             }
         }
-        stream.onDrop = { [weak self] in self?.update { $0.droppedFrames += 1 } }
+        stream.onQueueOverflow = { [weak self] in self?.update { $0.queueOverflows += 1 } }
         stream.onClose = { [weak self] reason in
             self?.queue.async { [weak self] in
                 guard let self else { return }

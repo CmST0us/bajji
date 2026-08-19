@@ -30,7 +30,8 @@ typedef struct {
     uint64_t tx_bytes;
     uint32_t rx_frames;
     uint32_t tx_frames;
-    uint32_t dropped_frames;
+    uint32_t queue_overflows;
+    uint32_t tx_errors;
     uint32_t protocol_errors;
     int32_t last_disconnect_reason;
 } ble_link_status_t;

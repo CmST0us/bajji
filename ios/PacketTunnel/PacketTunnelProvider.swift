@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 @preconcurrency import NetworkExtension
+import OSLog
 
 final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
+    private let logger = Logger(subsystem: "com.eric3u.bajji", category: "PacketTunnel")
     private var bridge: BluetoothBridge?
     private let phaseZero = PhaseZeroRunner()
     private let phaseZeroLock = NSLock()
@@ -12,6 +14,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
                               completionHandler: @escaping (Error?) -> Void) {
         let completion = TunnelStartCompletion(completionHandler)
         setPhaseZeroRequested((options?["phaseZero"] as? NSNumber)?.boolValue ?? false)
+        logger.info("starting tunnel: phase_zero=\(self.phaseZeroIsRequested())")
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.77.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.77.0.1"], subnetMasks: ["255.255.255.252"])
@@ -22,6 +25,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
 
         setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self, error == nil else {
+                if let error {
+                    self?.logger.error("network settings failed: \(error.localizedDescription, privacy: .public)")
+                }
                 completion.call(error)
                 return
             }
@@ -34,12 +40,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
             bridge.onUnavailable = { [weak self] in self?.phaseZero.stop() }
             self.bridge = bridge
             bridge.start()
+            logger.info("network settings applied; Bluetooth bridge starting")
             completion.call(nil)
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason,
                              completionHandler: @escaping () -> Void) {
+        logger.info("stopping tunnel: reason=\(reason.rawValue)")
         setPhaseZeroRequested(false)
         phaseZero.stop()
         bridge?.stop()
