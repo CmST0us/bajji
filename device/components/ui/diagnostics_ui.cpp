@@ -145,7 +145,6 @@ void DiagnosticsUI::create() {
     lv_obj_set_size(home_, kDisplayDiameter, kDisplayDiameter);
     lv_obj_center(home_);
     lv_obj_set_style_radius(home_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_clip_corner(home_, true, 0);
     lv_obj_set_style_bg_color(home_, lv_color_hex(0x0b1522), 0);
     lv_obj_set_style_border_width(home_, 0, 0);
     lv_obj_set_style_pad_all(home_, 0, 0);
