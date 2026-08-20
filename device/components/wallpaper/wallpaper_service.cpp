@@ -384,14 +384,6 @@ esp_err_t perform_update() {
     BingMetadata metadata;
     esp_err_t result = fetch_metadata(&metadata);
     if (result != ESP_OK) return result;
-    const WallpaperStatus before = wallpaper_snapshot();
-    ESP_LOGI(tag, "wallpaper decision: cached=%s remote=%s has_cache=%d", before.start_date,
-             metadata.start_date, before.has_cache);
-    if (before.has_cache && std::strcmp(before.start_date, metadata.start_date) == 0) {
-        ESP_LOGI(tag, "wallpaper unchanged; keeping cached image");
-        set_result(ESP_OK, "Wallpaper is up to date");
-        return ESP_OK;
-    }
     set_result(ESP_OK, "Downloading wallpaper...");
     result = download_image(metadata.url);
     if (result != ESP_OK) return result;
