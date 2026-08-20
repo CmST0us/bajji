@@ -1,7 +1,7 @@
 # Bajji StopWatch 随机图片 UI/UX 设计规格
 
 - 日期：2026-08-20
-- 状态：待用户审阅
+- 状态：已确认，待制作
 - 设备：M5Stack StopWatch / 466×466 圆形 AMOLED / 触控 / KEY A + KEY B
 - 基础规格：`2026-08-19-bajji-stopwatch-ble-ip-bridge-design.md`
 - 接口：<https://uapis.cn/docs/api-reference/get-random-image>
