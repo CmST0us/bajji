@@ -304,7 +304,7 @@ bool init_display_and_lvgl() {
     esp_timer_handle_t timer = nullptr;
     if (esp_timer_create(&timer_config, &timer) != ESP_OK ||
         esp_timer_start_periodic(timer, 10000) != ESP_OK) return false;
-    return xTaskCreate(lvgl_task, "lvgl", 8192, nullptr, 3, nullptr) == pdPASS;
+    return xTaskCreate(lvgl_task, "lvgl", 16384, nullptr, 3, nullptr) == pdPASS;
 }
 
 bool init_audio() {
