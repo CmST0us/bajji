@@ -76,7 +76,10 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     }
 
     func snapshot() -> BluetoothSnapshot {
-        queue.async { [weak self] in self?.peripheral?.readRSSI() }
+        queue.async { [weak self] in
+            guard let peripheral = self?.peripheral, peripheral.state == .connected else { return }
+            peripheral.readRSSI()
+        }
         return snapshotLock.withLock { currentSnapshot }
     }
 
