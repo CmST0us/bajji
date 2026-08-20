@@ -17,7 +17,7 @@ enum IPv4PacketError: Error, Equatable {
     case invalidHeader
     case fragmented
     case wrongAddress
-    case invalidAddressFamily
+    case unsupportedAddressFamily(UInt32)
 }
 
 enum IPv4Packet {
@@ -54,7 +54,9 @@ enum IPv4Packet {
     static func packet(fromTunDatagram datagram: Data) throws -> Data {
         guard datagram.count >= 24 else { throw IPv4PacketError.invalidSize }
         let family = datagram.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        guard family == UInt32(AF_INET) else { throw IPv4PacketError.invalidAddressFamily }
+        guard family == UInt32(AF_INET) else {
+            throw IPv4PacketError.unsupportedAddressFamily(family)
+        }
         return Data(datagram.dropFirst(4))
     }
 }

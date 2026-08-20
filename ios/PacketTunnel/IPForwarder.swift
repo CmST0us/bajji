@@ -120,6 +120,8 @@ final class IPForwarder: @unchecked Sendable {
                     $0.toDevicePackets += 1
                     $0.toDeviceBytes += UInt64(packet.count)
                 }
+            } catch IPv4PacketError.unsupportedAddressFamily(_) {
+                update { $0.droppedPackets += 1 }
             } catch let error as IPv4PacketError {
                 update {
                     $0.invalidPackets += 1

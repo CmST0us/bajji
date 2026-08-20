@@ -33,7 +33,7 @@ struct IPv4PacketTests {
 
         var wrong = datagram
         wrong[3] = UInt8(AF_INET6)
-        #expect(throws: IPv4PacketError.invalidAddressFamily) {
+        #expect(throws: IPv4PacketError.unsupportedAddressFamily(UInt32(AF_INET6))) {
             try IPv4Packet.packet(fromTunDatagram: wrong)
         }
     }
