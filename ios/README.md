@@ -12,8 +12,7 @@ tests. The extension alone owns CoreBluetooth and routes only `10.77.0.0/30`.
    passkey shown on StopWatch when iOS asks.
 
 Once the bridge is ready, Bajji owns `10.77.0.2/30`; the extension translates
-its IPv4 TCP, UDP, and DNS traffic through the iPhone. Phase Zero echo is an
-explicit debug-only mode and must remain off for normal forwarding.
+its IPv4 TCP, UDP, and DNS traffic through the iPhone.
 
 For lifecycle testing, detach the Xcode debugger before swiping away the host
 App. Xcode stopping a debug session also terminates the extension. Use

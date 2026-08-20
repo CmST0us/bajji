@@ -4,7 +4,6 @@ import SwiftUI
 
 struct ContentView: View {
     let tunnel: TunnelManager
-    @State private var debugExpanded = false
 
     var body: some View {
         NavigationStack {
@@ -21,9 +20,6 @@ struct ContentView: View {
                     connectionSection(diagnostics.bluetooth, internet: diagnostics.internet)
                     forwarderSection(diagnostics.forwarder)
                     transportSection(diagnostics.bluetooth)
-                    debugSection(diagnostics.phaseZero)
-                } else {
-                    debugSection(nil)
                 }
 
                 Section("Diagnostics") {
@@ -38,7 +34,6 @@ struct ContentView: View {
             .navigationTitle("Bajji Bridge")
             .task {
                 await tunnel.refresh()
-                await tunnel.applyPhaseZeroSetting()
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     await tunnel.readSnapshot()
@@ -94,27 +89,6 @@ struct ContentView: View {
             if !bluetooth.lastError.isEmpty {
                 LabeledContent("Last error") {
                     Text(bluetooth.lastError).foregroundStyle(.red)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func debugSection(_ phaseZero: PhaseZeroDiagnostics?) -> some View {
-        Section("Debug") {
-            DisclosureGroup("Internal Tools", isExpanded: $debugExpanded) {
-                Toggle("60-second PING/PONG echo", isOn: Bindable(tunnel).phaseZeroOnStart)
-                    .onChange(of: tunnel.phaseZeroOnStart) {
-                        Task { await tunnel.applyPhaseZeroSetting() }
-                    }
-                if let phaseZero {
-                    LabeledContent("State", value: phaseZero.running ? "Running · window 4" : "Stopped")
-                    LabeledContent("Payload TX", value: formattedBytes(phaseZero.sentPayloadBytes))
-                    LabeledContent("Echo RX", value: formattedBytes(phaseZero.echoedPayloadBytes))
-                    LabeledContent("Echo rate",
-                                   value: String(format: "%.1f KB/s", phaseZero.echoedKilobytesPerSecond))
-                    LabeledContent("In flight", value: "\(phaseZero.inFlightFrames) frames")
-                    LabeledContent("Elapsed", value: String(format: "%.1f s", phaseZero.elapsedSeconds))
                 }
             }
         }

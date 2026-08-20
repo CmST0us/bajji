@@ -5,15 +5,6 @@ import Testing
 @testable import BridgeCore
 #endif
 
-private final class FrameRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var frames: [BridgeFrame] = []
-
-    func append(_ frame: BridgeFrame) { lock.withLock { frames.append(frame) } }
-    var count: Int { lock.withLock { frames.count } }
-    var first: BridgeFrame? { lock.withLock { frames.first } }
-}
-
 struct BridgeStreamParserTests {
     private let ping = Data([
         0xBA, 0x77, 0x01, 0x20, 0x00, 0x08, 0x00, 0x2A,
@@ -89,30 +80,4 @@ struct BridgeStreamParserTests {
         #expect(try parser.append(encoded) == [frame])
     }
 
-    #if !SWIFT_PACKAGE
-    @Test func phaseZeroKeepsTwentyFourFramesInFlight() async throws {
-        let runner = PhaseZeroRunner()
-        let recorder = FrameRecorder()
-        runner.start { recorder.append($0) }
-        for _ in 0..<20 where recorder.count < 24 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-
-        #expect(recorder.count == 24)
-        #expect(runner.snapshot().inFlightFrames == 24)
-
-        runner.receive(try #require(recorder.first))
-        for _ in 0..<20 where recorder.count < 25 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-
-        let running = runner.snapshot()
-        #expect(recorder.count == 25)
-        #expect(running.inFlightFrames == 24)
-        #expect(running.sentPayloadBytes == UInt64(BridgeFrame.maximumPayload * 25))
-        #expect(running.echoedPayloadBytes == UInt64(BridgeFrame.maximumPayload))
-
-        runner.stop()
-    }
-    #endif
 }

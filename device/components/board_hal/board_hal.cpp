@@ -59,8 +59,6 @@ bmi270_bmm150_handle_t imu = nullptr;
 SemaphoreHandle_t lvgl_mutex = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
 bool audio_busy = false;
-bool button_a_latched = false;
-bool button_a_previous = false;
 ButtonState button_b;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
@@ -453,11 +451,8 @@ BoardStatus BoardHal::snapshot() { return status_; }
 
 void BoardHal::poll() {
     const auto now = esp_timer_get_time();
-    const bool a = gpio_get_level(kButtonA) == 0;
     const bool b = gpio_get_level(kButtonB) == 0;
-    button_a_latched |= a && !button_a_previous;
     button_b.update(b, static_cast<std::uint64_t>(now / 1000));
-    button_a_previous = a;
 
     if (motor_stop_us && now >= motor_stop_us) stop_vibration();
     if (status_.touch == Health::ok) status_.touch_point = read_touch();
@@ -550,14 +545,6 @@ void BoardHal::shutdown() {
     gpio_set_level(kSpeakerPa, 0);
     if (pmic) pmic->shutdown();
 }
-
-bool BoardHal::button_a_pressed() {
-    const bool result = button_a_latched;
-    button_a_latched = false;
-    return result;
-}
-
-bool BoardHal::button_b_short_pressed() { return button_b.take_short_press(); }
 
 bool BoardHal::button_b_long_pressed() { return button_b.take_long_press(); }
 

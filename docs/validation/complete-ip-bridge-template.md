@@ -39,7 +39,6 @@ The user flashes the ESP32 firmware and records the physical-device results belo
 | Check | Expected | Result / evidence |
 | --- | --- | --- |
 | Round home | No text or touch target is clipped | |
-| KEY B short | Brightness cycles once | |
 | KEY B hold 1.2 s | Internal tools opens/closes once; no brightness change | |
 | DNS/HTTPS/PING tools | Result and counters update | |
 | Wallpaper refresh | Busy/result/error state is readable | |

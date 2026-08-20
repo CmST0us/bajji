@@ -94,7 +94,7 @@ CoC HELLO 成功后 link up；断开时 link down 并清空完整包队列。TCP
 
 iOS 在每次 HELLO 成功后发送一次 `TIME_SYNC`。Device 仅接受合理年份范围内的值，并同步系统时间；若 RTC 写入接口可用，同时更新硬件 RTC。CoC 已加密并绑定，因此时间属于可信控制面数据。壁纸 HTTPS 任务必须等待有效时间。
 
-Phase Zero 的 `IPV4` echo 从正式运行路径删除。吞吐 echo 只保留为显式 Debug 模式，且不能与正式 Forwarder 同时运行。
+Phase Zero 的 `IPV4` echo 从正式运行路径删除。
 
 ## 6. iOS Forwarder
 
@@ -180,9 +180,8 @@ Device 自己使用 `esp_http_client`、ESP certificate bundle 和 cJSON 请求�
 
 KEY B GPIO1 行为：
 
-- 短按释放：循环调整亮度；
+- 短按释放：不执行操作；
 - 按住约 1.2 秒：产生一次 long-press，打开内部工具视图；
-- long-press 后释放不能再产生 short-press；
 - 工具视图中再次长按或点击 Close 返回主界面。
 
 工具视图按圆屏安全宽度滚动展示：
@@ -190,11 +189,10 @@ KEY B GPIO1 行为：
 - Network：地址、DNS、link、Internet、IP bytes/packets/drops、最后错误；
 - Bluetooth：PHY、interval、MTU/MPS、bond；
 - Tests：DNS resolve、HTTPS request、刷新壁纸、PING；
-- Hardware：亮度、振动、tone；
 - Security：二次确认后清除配对；
 - Power：二次确认后 shutdown。
 
-主界面不展示 Phase Zero、协议错误明细和破坏性操作。
+主界面不展示协议错误明细和破坏性操作。
 
 ## 11. iOS App 交互
 
@@ -207,8 +205,6 @@ KEY B GPIO1 行为：
 - Refresh Diagnostics；
 - Clear Device Binding（确认）；
 - transport 和 IP 数据统计。
-
-Phase Zero 移入 Debug section，默认关闭，与正式 Forwarder 互斥。
 
 ## 12. 验证
 
@@ -227,7 +223,7 @@ Phase Zero 移入 Debug section，默认关闭，与正式 Forwarder 互斥。
 - Bajji 获取并显示 Bing 当日 JPEG；
 - 单向有效载荷持续大于 50 KB/s；
 - 锁屏、宿主 App 被划掉、BLE 重连、Wi-Fi/蜂窝切换；
-- 缓存、错误提示、KEY B short/long press 和工具页操作；
+- 缓存、错误提示、KEY B long press 和工具页操作；
 - 内存稳定，无 CoC crash、持续增长或 watchdog reset。
 
 Codex 不执行设备烧录。

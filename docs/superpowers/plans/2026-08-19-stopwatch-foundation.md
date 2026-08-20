@@ -250,12 +250,7 @@ void DiagnosticsUI::create() {
 
 - [ ] **Step 2: Wire touch/buttons to diagnostics**
 
-Button A plays a short tone and vibrates; Button B cycles brightness; the UI exposes shutdown and clear-bond buttons with a confirmation dialog.
-
-```cpp
-if (hal.button_a_pressed()) { hal.play_tone(880, 80); hal.vibrate(80, 60); }
-if (hal.button_b_pressed()) { hal.set_brightness((hal.brightness() + 20) % 100); }
-```
+The UI exposes shutdown and clear-bond buttons with a confirmation dialog. Hardware bring-up key shortcuts were removed after validation.
 
 - [ ] **Step 3: Build complete foundation**
 

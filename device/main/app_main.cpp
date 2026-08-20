@@ -38,13 +38,6 @@ extern "C" void app_main() {
     std::uint64_t last_tx_bytes = 0;
     while (true) {
         board.poll();
-        if (board.button_a_pressed()) {
-            board.vibrate(80, 60);
-            board.play_tone(880, 80);
-        }
-        if (board.button_b_short_pressed()) {
-            board.set_brightness(static_cast<std::uint8_t>((board.brightness() % 100) + 20));
-        }
         const bool show_tools = board.button_b_long_pressed();
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();

@@ -152,12 +152,12 @@ Tunnel YAML uses MTU 1280, IPv4 `10.77.0.1`, SOCKS `127.0.0.1:PORT`, UDP mode `u
 - Modify: `ios/BajjiApp/TunnelManager.swift`
 - Modify: `ios/BajjiApp/ContentView.swift`
 
-**Interfaces:** snapshot includes Bluetooth, Forwarder, and debug Phase Zero; provider messages are snapshot, binding clear, and explicit debug echo start/stop.
+**Interfaces:** snapshot includes Bluetooth and Forwarder; provider messages are snapshot and binding clear.
 
 - [x] After HELLO, send network-order `UInt64(Date().timeIntervalSince1970)` TIME_SYNC before ready.
 - [x] Start IPForwarder before Bluetooth. Route BLE IPV4 to it and its output to `BluetoothBridge.send`.
 - [x] On BLE loss, clear sessions and recreate Forwarder before next ready while VPN remains Waiting. On satisfied `NWPathMonitor` change, restart sessions but preserve BLE.
-- [x] Default Phase Zero off, move it behind Debug, and make it mutually exclusive with production forwarding.
+- [x] Remove Phase Zero after production forwarding is verified.
 - [x] Show separate VPN, Bluetooth, and Internet statuses plus IP bytes/packets/drops/invalid/last error.
 - [x] Run unsigned iOS build and commit `feat(ios): run production bridge data plane`.
 
@@ -199,14 +199,14 @@ Tunnel YAML uses MTU 1280, IPv4 `10.77.0.1`, SOCKS `127.0.0.1:PORT`, UDP mode `u
 - Modify: `device/components/ui/CMakeLists.txt`
 - Modify: `device/main/app_main.cpp`
 
-**Interfaces:** one-shot `button_b_short_pressed` and `button_b_long_pressed`; UI refresh accepts board/BLE/IP/wallpaper snapshots; `toggle_tools` switches screens.
+**Interfaces:** one-shot `button_b_long_pressed`; UI refresh accepts board/BLE/IP/wallpaper snapshots; `toggle_tools` switches screens.
 
-- [x] Write a host test: release before 1.2 s emits short; holding 1.2 s emits one long; release after long emits no short.
-- [x] Replace KEY B edge latch with the tested state machine. Keep KEY A unchanged.
+- [x] Write a host test: release before 1.2 s does nothing; holding 1.2 s emits one long event.
+- [x] Replace KEY B edge latch with the tested long-press state machine. KEY A has no validation side effect.
 - [x] Create a 466×466 circular clipped home, cover-align `S:/wallpaper.jpg`, and place status/time/caption/touch targets inside the 328×328 safe square.
 - [x] On wallpaper revision, call `lv_image_cache_drop("S:/wallpaper.jpg")`, reset source, and invalidate. Hide image when no cache.
-- [x] Reuse the scrollable diagnostics layout as tools sections: Network, Bluetooth, Tests, Hardware, Security, Power. Preserve confirmations for clear bond and shutdown.
-- [x] Short B changes brightness; long B toggles tools under LVGL mutex; refresh all snapshots every 100 ms.
+- [x] Reuse the scrollable diagnostics layout as tools sections: Network, Bluetooth, Tests, Security, Power. Preserve confirmations for clear bond and shutdown.
+- [x] Short B does nothing; long B toggles tools under LVGL mutex; refresh all snapshots every 100 ms.
 - [x] Run host tests and IDF build; commit `feat(device): add round home and internal tools`.
 
 ### Task 8: Verify and prepare physical handoff

@@ -76,17 +76,6 @@ lv_obj_t* add_actions(lv_obj_t* parent) {
     return actions;
 }
 
-void test_feedback(lv_event_t*) {
-    auto& board = BoardHal::instance();
-    board.vibrate(100, 60);
-    board.play_tone(880, 80);
-}
-
-void cycle_brightness(lv_event_t*) {
-    auto& board = BoardHal::instance();
-    board.set_brightness(static_cast<std::uint8_t>((board.brightness() % 100) + 20));
-}
-
 void request_refresh(lv_event_t*) { wallpaper_request_refresh(); }
 void request_dns(lv_event_t*) { wallpaper_request_dns_test(); }
 void request_https(lv_event_t*) { wallpaper_request_https_test(); }
@@ -236,11 +225,6 @@ void DiagnosticsUI::create() {
 
     add_section(tools_, "WALLPAPER");
     wallpaper_ = add_label(tools_, "No cache");
-    add_section(tools_, "HARDWARE");
-    hardware_ = add_label(tools_, "Starting...");
-    auto* hardware_actions = add_actions(tools_);
-    add_button(hardware_actions, "Tone + Motor", test_feedback);
-    add_button(hardware_actions, "Brightness", cycle_brightness);
 
     add_section(tools_, "SECURITY");
     auto* security = add_actions(tools_);
@@ -249,7 +233,7 @@ void DiagnosticsUI::create() {
     auto* power = add_actions(tools_);
     add_button(power, "Power off", confirm_shutdown);
 
-    auto* tools_hint = add_label(tools_, "KEY B short: brightness | hold: close tools");
+    auto* tools_hint = add_label(tools_, "Hold KEY B to close tools");
     lv_obj_set_style_text_color(tools_hint, lv_color_hex(0x8290a8), 0);
     lv_obj_set_style_text_align(tools_hint, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_add_flag(tools_, LV_OBJ_FLAG_HIDDEN);
@@ -340,15 +324,6 @@ void DiagnosticsUI::refresh(const BoardStatus& board, const ble_link_status_t& l
                           yes_no(wallpaper.has_cache), yes_no(wallpaper.busy),
                           wallpaper.start_date[0] ? wallpaper.start_date : "--------",
                           wallpaper.state, static_cast<long>(wallpaper.last_error));
-    lv_label_set_text_fmt(hardware_,
-                          "Power %s / IOE %s | battery %u%% %u mV%s\n"
-                          "Display %s / Touch %s | brightness %u%%\n"
-                          "Audio %s / Motor %s / mic %u\nIMU %s / RTC %s",
-                          health_text(board.pmic), health_text(board.io_expander),
-                          board.battery_percent, board.battery_mv, board.charging ? " charging" : "",
-                          health_text(board.display), health_text(board.touch), board.brightness,
-                          health_text(board.audio), health_text(board.motor), board.microphone_level,
-                          health_text(board.imu), health_text(board.rtc));
 }
 
 }  // namespace bajji

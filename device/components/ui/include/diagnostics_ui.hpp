@@ -31,7 +31,6 @@ private:
     _lv_obj_t* network_{};
     _lv_obj_t* bluetooth_{};
     _lv_obj_t* wallpaper_{};
-    _lv_obj_t* hardware_{};
     _lv_obj_t* test_result_{};
     std::uint32_t wallpaper_revision_{};
     bool tools_visible_{};

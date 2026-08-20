@@ -60,8 +60,6 @@ public:
     void play_tone(std::uint16_t frequency_hz, std::uint16_t duration_ms);
     void shutdown();
 
-    bool button_a_pressed();
-    bool button_b_short_pressed();
     bool button_b_long_pressed();
     bool lvgl_lock(std::uint32_t timeout_ms = 1000);
     void lvgl_unlock();

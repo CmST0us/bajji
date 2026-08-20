@@ -18,15 +18,8 @@ public:
             long_emitted_ = true;
             long_latched_ = true;
         } else if (!pressed && pressed_) {
-            if (!long_emitted_) short_latched_ = true;
             pressed_ = false;
         }
-    }
-
-    bool take_short_press() {
-        const bool result = short_latched_;
-        short_latched_ = false;
-        return result;
     }
 
     bool take_long_press() {
@@ -40,7 +33,6 @@ private:
     std::uint64_t pressed_at_ms_{};
     bool pressed_{};
     bool long_emitted_{};
-    bool short_latched_{};
     bool long_latched_{};
 };
 

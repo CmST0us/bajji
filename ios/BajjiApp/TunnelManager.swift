@@ -7,7 +7,6 @@ struct TunnelDiagnostics: Decodable {
     let internet: String
     let bluetooth: BluetoothDiagnostics
     let forwarder: IPForwarderDiagnostics
-    let phaseZero: PhaseZeroDiagnostics
 }
 
 struct IPForwarderDiagnostics: Decodable {
@@ -44,15 +43,6 @@ struct BluetoothDiagnostics: Decodable {
     let lastError: String
 }
 
-struct PhaseZeroDiagnostics: Decodable {
-    let running: Bool
-    let sentPayloadBytes: UInt64
-    let echoedPayloadBytes: UInt64
-    let elapsedSeconds: Double
-    let echoedKilobytesPerSecond: Double
-    let inFlightFrames: Int
-}
-
 @MainActor
 @Observable
 final class TunnelManager {
@@ -64,7 +54,6 @@ final class TunnelManager {
     var status = "Not installed"
     var detail = "Install the VPN profile, then start the bridge."
     var diagnostics: TunnelDiagnostics?
-    var phaseZeroOnStart = false
     var isBusy = false
 
     func refresh() async {
@@ -99,13 +88,9 @@ final class TunnelManager {
                 throw TunnelError.notInstalled
             }
             self.manager = manager
-            try manager.connection.startVPNTunnel(options: [
-                "phaseZero": NSNumber(value: self.phaseZeroOnStart)
-            ])
+            try manager.connection.startVPNTunnel()
             self.status = "Connecting"
-            self.detail = self.phaseZeroOnStart
-                ? "Pair when prompted; Debug Echo starts after L2CAP is ready."
-                : "Pair when prompted; the StopWatch will use the iPhone uplink."
+            self.detail = "Pair when prompted; the StopWatch will use the iPhone uplink."
         }
     }
 
@@ -125,18 +110,6 @@ final class TunnelManager {
             let data = try await send("snapshot", through: session)
             diagnostics = try JSONDecoder().decode(TunnelDiagnostics.self, from: data)
             status = statusText(session.status)
-        } catch {
-            detail = error.localizedDescription
-        }
-    }
-
-    func applyPhaseZeroSetting() async {
-        guard let session = manager?.connection as? NETunnelProviderSession,
-              session.status == .connected else { return }
-        do {
-            _ = try await send(phaseZeroOnStart ? "debug:echo:start" : "debug:echo:stop",
-                               through: session)
-            detail = phaseZeroOnStart ? "Debug echo requested." : "Production forwarding enabled."
         } catch {
             detail = error.localizedDescription
         }

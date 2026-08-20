@@ -6,7 +6,6 @@ import OSLog
 
 final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "PacketTunnel")
-    private let phaseZero = PhaseZeroRunner()
     private let stateLock = NSLock()
     private let forwarderQueue = DispatchQueue(label: "com.eric3u.bajji.forwarder.lifecycle")
     private let pathQueue = DispatchQueue(label: "com.eric3u.bajji.path")
@@ -14,19 +13,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     private var bridge: BluetoothBridge?
     private var forwarder: IPForwarder?
     private var forwarderFallback = IPForwarderSnapshot()
-    private var phaseZeroRequested = false
     private var stopping = false
     private var internetState = "checking"
     private var pathSignature: String?
 
-    override func startTunnel(options: [String: NSObject]?,
+    override func startTunnel(options _: [String: NSObject]?,
                               completionHandler: @escaping (Error?) -> Void) {
         let completion = TunnelStartCompletion(completionHandler)
-        stateLock.withLock {
-            phaseZeroRequested = (options?["phaseZero"] as? NSNumber)?.boolValue ?? false
-            stopping = false
-        }
-        logger.info("starting tunnel: debug_echo=\(self.debugEchoRequested())")
+        stateLock.withLock { stopping = false }
+        logger.info("starting tunnel")
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.77.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["10.77.0.1"], subnetMasks: ["255.255.255.252"])
@@ -48,7 +43,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
             self.bridge = bridge
             self.configure(bridge)
             do {
-                if !self.debugEchoRequested() { try self.replaceForwarder(for: bridge) }
+                try self.replaceForwarder(for: bridge)
             } catch {
                 self.logger.error("forwarder start failed: \(error.localizedDescription, privacy: .public)")
                 completion.call(error)
@@ -64,12 +59,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     override func stopTunnel(with reason: NEProviderStopReason,
                              completionHandler: @escaping () -> Void) {
         logger.info("stopping tunnel: reason=\(reason.rawValue)")
-        stateLock.withLock {
-            stopping = true
-            phaseZeroRequested = false
-        }
+        stateLock.withLock { stopping = true }
         pathMonitor.cancel()
-        phaseZero.stop()
         bridge?.stop()
         bridge = nil
         forwarderQueue.sync { self.stopForwarder() }
@@ -79,12 +70,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     override func handleAppMessage(_ messageData: Data,
                                    completionHandler: ((Data?) -> Void)? = nil) {
         switch String(data: messageData, encoding: .utf8) {
-        case "phase0:start", "debug:echo:start":
-            setDebugEcho(true)
-            completionHandler?(Data("ok".utf8))
-        case "phase0:stop", "debug:echo:stop":
-            setDebugEcho(false)
-            completionHandler?(Data("ok".utf8))
         case "binding:clear":
             bridge?.clearBinding()
             completionHandler?(Data("ok".utf8))
@@ -92,8 +77,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
             let snapshot = TunnelSnapshot(
                 internet: stateLock.withLock { internetState },
                 bluetooth: bridge?.snapshot() ?? BluetoothSnapshot(),
-                forwarder: forwarderSnapshot(),
-                phaseZero: phaseZero.snapshot()
+                forwarder: forwarderSnapshot()
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -103,40 +87,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
 
     private func configure(_ bridge: BluetoothBridge) {
         bridge.onFrame = { [weak self] frame in
-            guard let self else { return }
-            if debugEchoRequested() {
-                phaseZero.receive(frame)
-            } else if frame.type == .ipv4 {
-                activeForwarder()?.receiveFromDevice(frame)
-            }
+            guard let self, frame.type == .ipv4 else { return }
+            activeForwarder()?.receiveFromDevice(frame)
         }
         bridge.onReady = { [weak self, weak bridge] in
             guard let self, let bridge else { return }
-            if debugEchoRequested() {
-                phaseZero.start { [weak bridge] frame in bridge?.send(frame) }
-            } else if activeForwarder() == nil {
+            if activeForwarder() == nil {
                 rebuildForwarder(for: bridge)
             }
         }
         bridge.onUnavailable = { [weak self, weak bridge] in
-            guard let self else { return }
-            phaseZero.stop()
-            guard let bridge, !debugEchoRequested() else { return }
-            rebuildForwarder(for: bridge)
-        }
-    }
-
-    private func setDebugEcho(_ enabled: Bool) {
-        stateLock.withLock { phaseZeroRequested = enabled }
-        guard let bridge else { return }
-        if enabled {
-            forwarderQueue.async { [weak self] in self?.stopForwarder() }
-            bridge.whenReady { [weak self, weak bridge] in
-                guard let self, let bridge, debugEchoRequested() else { return }
-                phaseZero.start { [weak bridge] frame in bridge?.send(frame) }
-            }
-        } else {
-            phaseZero.stop()
+            guard let self, let bridge else { return }
             rebuildForwarder(for: bridge)
         }
     }
@@ -152,7 +113,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
                 return previous
             }
             if previous != nil, previous != signature, path.status == .satisfied,
-               let bridge, !self.debugEchoRequested() {
+               let bridge {
                 self.logger.info("upstream path changed; restarting forwarding sessions")
                 self.rebuildForwarder(for: bridge)
             }
@@ -172,7 +133,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
 
     private func rebuildForwarder(for bridge: BluetoothBridge) {
         forwarderQueue.async { [weak self, weak bridge] in
-            guard let self, let bridge, !debugEchoRequested(), !isStopping() else { return }
+            guard let self, let bridge, !isStopping() else { return }
             do {
                 try replaceForwarder(for: bridge)
             } catch {
@@ -185,7 +146,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
         stopForwarder()
         let next = IPForwarder()
         try next.start { [weak bridge] frame in bridge?.send(frame) }
-        if isStopping() || debugEchoRequested() {
+        if isStopping() {
             next.stop()
             return
         }
@@ -218,7 +179,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
         return value.0?.snapshot() ?? value.1
     }
 
-    private func debugEchoRequested() -> Bool { stateLock.withLock { phaseZeroRequested } }
     private func isStopping() -> Bool { stateLock.withLock { stopping } }
 }
 
@@ -234,5 +194,4 @@ private struct TunnelSnapshot: Codable {
     let internet: String
     let bluetooth: BluetoothSnapshot
     let forwarder: IPForwarderSnapshot
-    let phaseZero: PhaseZeroSnapshot
 }

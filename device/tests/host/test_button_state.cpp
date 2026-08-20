@@ -8,7 +8,6 @@ int main() {
 
     button.update(true, 100);
     button.update(false, 900);
-    assert(button.take_short_press());
     assert(!button.take_long_press());
 
     button.update(true, 2000);
@@ -19,6 +18,6 @@ int main() {
     button.update(true, 4000);
     assert(!button.take_long_press());
     button.update(false, 4100);
-    assert(!button.take_short_press());
+    assert(!button.take_long_press());
     return 0;
 }
