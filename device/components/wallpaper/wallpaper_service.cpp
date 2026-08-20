@@ -94,6 +94,7 @@ esp_err_t header_event(esp_http_client_event_t* event) {
 }
 
 esp_http_client_handle_t open_https(const char* url, HeaderState* header, int64_t* length) {
+    ESP_LOGI(tag, "HTTP GET %s", url);
     esp_http_client_config_t config{};
     config.url = url;
     config.user_agent = "Bajji-StopWatch/1";
@@ -114,6 +115,8 @@ esp_http_client_handle_t open_https(const char* url, HeaderState* header, int64_
     }
     *length = esp_http_client_fetch_headers(client);
     const int code = esp_http_client_get_status_code(client);
+    ESP_LOGI(tag, "HTTP response: status=%d content_length=%lld", code,
+             static_cast<long long>(*length));
     if (*length < 0 || code < 200 || code >= 300) {
         ESP_LOGE(tag, "HTTPS rejected for %s: status=%d length=%lld", url, code,
                  static_cast<long long>(*length));
@@ -160,6 +163,7 @@ esp_err_t fetch_metadata(BingMetadata* metadata) {
         if (esp_http_client_read(client, &extra, 1) != 0) result = ESP_ERR_INVALID_SIZE;
     }
     close_https(client);
+    ESP_LOGI(tag, "metadata response body: %u bytes", static_cast<unsigned>(used));
     if (result != ESP_OK) {
         std::free(body);
         return result;
@@ -187,6 +191,7 @@ esp_err_t fetch_metadata(BingMetadata* metadata) {
     for (char* cursor = metadata->copyright; *cursor; ++cursor) {
         if (*cursor == '\r' || *cursor == '\n') *cursor = ' ';
     }
+    ESP_LOGI(tag, "metadata parsed: date=%s image=%s", metadata->start_date, metadata->url);
     cJSON_Delete(root);
     return ESP_OK;
 }
@@ -380,7 +385,10 @@ esp_err_t perform_update() {
     esp_err_t result = fetch_metadata(&metadata);
     if (result != ESP_OK) return result;
     const WallpaperStatus before = wallpaper_snapshot();
+    ESP_LOGI(tag, "wallpaper decision: cached=%s remote=%s has_cache=%d", before.start_date,
+             metadata.start_date, before.has_cache);
     if (before.has_cache && std::strcmp(before.start_date, metadata.start_date) == 0) {
+        ESP_LOGI(tag, "wallpaper unchanged; keeping cached image");
         set_result(ESP_OK, "Wallpaper is up to date");
         return ESP_OK;
     }
@@ -477,7 +485,8 @@ void worker(void*) {
             failures = 0;
             next_attempt = now + pdMS_TO_TICKS(kSuccessCheckSeconds * 1000U);
             update_status([](WallpaperStatus& value) { value.internet_verified = true; });
-            ESP_LOGI(tag, "wallpaper check complete");
+            ESP_LOGI(tag, "wallpaper check complete; next automatic check in %lu min",
+                     static_cast<unsigned long>(kSuccessCheckSeconds / 60U));
         } else {
             const size_t retry_index = failures < std::size(kRetrySeconds) ? failures
                                                                            : std::size(kRetrySeconds) - 1;
