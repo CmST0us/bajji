@@ -7,11 +7,16 @@
 
 #include <inttypes.h>
 
+#include "esp_event.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 extern "C" void app_main() {
+    const esp_err_t event_result = esp_event_loop_create_default();
+    if (event_result != ESP_OK) {
+        ESP_LOGE("main", "default event loop init failed: %s", esp_err_to_name(event_result));
+    }
     auto& board = bajji::BoardHal::instance();
     const esp_err_t result = board.init();
     if (result != ESP_OK) ESP_LOGE("main", "board init incomplete: %s", esp_err_to_name(result));
