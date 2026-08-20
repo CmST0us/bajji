@@ -39,7 +39,6 @@ struct BoardStatus {
     std::uint8_t battery_percent = 0;
     bool charging = false;
     std::uint8_t brightness = 60;
-    std::uint16_t microphone_level = 0;
     TouchPoint touch_point{};
     ImuSample imu_sample{};
     std::array<char, 24> rtc_text{};

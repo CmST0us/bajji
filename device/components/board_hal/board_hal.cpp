@@ -58,12 +58,10 @@ i2c_master_dev_handle_t rtc_device = nullptr;
 bmi270_bmm150_handle_t imu = nullptr;
 SemaphoreHandle_t lvgl_mutex = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
-bool audio_busy = false;
 ButtonState button_b;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
 std::int64_t sensor_poll_us = 0;
-std::int64_t audio_poll_us = 0;
 
 class PanelCO5300 final : public lgfx::Panel_AMOLED {
 public:
@@ -490,15 +488,6 @@ void BoardHal::poll() {
         }
     }
 
-    if (codec && !audio_busy && now - audio_poll_us >= 500000) {
-        audio_poll_us = now;
-        std::array<std::int16_t, 128> samples{};
-        if (esp_codec_dev_read(codec, samples.data(), sizeof(samples)) == 0) {
-            std::uint32_t total = 0;
-            for (const auto sample : samples) total += std::abs(static_cast<int>(sample));
-            status_.microphone_level = static_cast<std::uint16_t>(total / samples.size());
-        }
-    }
 }
 
 void BoardHal::set_brightness(std::uint8_t percent) {
@@ -529,11 +518,9 @@ void BoardHal::play_tone(std::uint16_t frequency_hz, std::uint16_t duration_ms) 
     for (std::size_t index = 0; index < count; ++index) {
         samples[index] = static_cast<std::int16_t>(std::sin(2.0 * pi * frequency_hz * index / kSampleRate) * 7000);
     }
-    audio_busy = true;
     esp_codec_dev_write(codec, samples.data(), samples.size() * sizeof(samples[0]));
     std::array<std::int16_t, kSampleRate / 100> silence{};
     esp_codec_dev_write(codec, silence.data(), sizeof(silence));
-    audio_busy = false;
 }
 
 void BoardHal::shutdown() {
