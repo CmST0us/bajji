@@ -58,7 +58,7 @@ final class HEVForwarder: @unchecked Sendable {
         socks5:
           port: \(port)
           address: 127.0.0.1
-          udp: 'udp'
+          udp: 'tcp'
         misc:
           task-stack-size: 24576
           tcp-buffer-size: 4096
