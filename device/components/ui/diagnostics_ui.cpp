@@ -411,7 +411,13 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     lv_obj_center(root_);
     lv_obj_set_style_border_width(root_, next == Page::image ? 0 : 2, 0);
     lv_obj_set_style_border_color(root_, color(kOverlay), 0);
-    lv_obj_set_style_clip_corner(root_, true, 0);
+    // No software corner clipping. The panel is physically round, so the corners of this
+    // 466x466 box are already outside the visible area. Enabling it sends LVGL down
+    // lv_refr.c:188, which renders every child twice - once into a top half layer and once
+    // into a bottom half layer, each ARGB8888 and rout = 466/2 = 233 rows tall - then masks
+    // and composites them. That split reset the blur's IIR filter state at y=233, leaving a
+    // seam across the blurred wallpaper, and cost two 434 kB layers plus a double render
+    // of the whole tree every frame.
 
     switch (next) {
         case Page::startup:
