@@ -59,6 +59,15 @@ public:
                 events_.chord_cancelled = true;
             }
         } else if (!suppress_until_release_) {
+            const bool chord_window_closed = now_ms - first_pressed_at_ms_ > chord_window_ms_;
+            if (chord_window_closed && a_down && !b_down && a_pending_ && !b_pending_) {
+                a_pending_ = false;
+                events_.a_pressed = true;
+            }
+            if (chord_window_closed && b_down && !a_down && b_pending_ && !a_pending_) {
+                b_pending_ = false;
+                events_.b_pressed = true;
+            }
             if (a_falling && a_pending_) {
                 a_pending_ = false;
                 events_.a_pressed = true;

@@ -523,7 +523,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     lv_obj_set_style_bg_opa(controls_, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(controls_, LV_OBJ_FLAG_CLICKABLE);
 
-    auto* a = object(controls_, -18, 72, 132, 56, kButtonA, 28);
+    auto* a = object(controls_, 35, 30, 132, 56, kButtonA, 28);
     lv_obj_set_style_border_width(a, 1, 0);
     lv_obj_set_style_border_color(a, color(0xffffff), 0);
     lv_obj_set_style_border_opa(a, LV_OPA_30, 0);
@@ -534,7 +534,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
     label(a, LV_SYMBOL_IMAGE, 76, 14, 36, &lv_font_montserrat_28, kBase);
 
-    auto* b = object(controls_, 352, 72, 132, 56, kButtonB, 28);
+    auto* b = object(controls_, 298, 30, 132, 56, kButtonB, 28);
     lv_obj_set_style_border_width(b, 1, 0);
     lv_obj_set_style_border_color(b, color(0xffffff), 0);
     lv_obj_set_style_border_opa(b, LV_OPA_30, 0);

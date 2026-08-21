@@ -14,6 +14,12 @@ int main() {
     button.update(false, false, 360);
     assert(button.take_events().b_pressed);
 
+    button.update(true, false, 500);
+    button.update(true, false, 621);
+    assert(button.take_events().a_pressed);
+    button.update(false, false, 700);
+    assert(!button.take_events().a_pressed);
+
     button.update(true, false, 1000);
     button.update(true, true, 1120);
     auto events = button.take_events();
