@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-08-22 · 最新 Figma 设置与异常流程已实现，待烧写真机
+
+提交 `be43db1`、`3cd8d8c` 已实现参数设置主页、分类/类型、配对管理与解除确认、三档亮度、定时刷新预设/自定义间隔、加载取消、配对码失效恢复和手机桥接不可用页面；定时刷新按设备本地持久化并继续通过 BLE 手机网络请求。中文 16/20/24 px 字形子集已随文案更新，图片页实体按键映射仍位于 Figma 指定的顶部位置。host tests 与 ESP-IDF 完整构建通过，app 大小 `0x1e34d0`，尚未烧写真机做触摸、实体按键和视觉验收。
+
 ## 2026-08-22 · 壁纸代理已切到 Cloudflare Images Worker，待烧写真机
 
 已部署 `cloudflare/image-proxy/worker.mjs` 并绑定自定义域名 `https://bajji-image-proxy.eric3u.cc`，本机 Wrangler OAuth 登录态可继续部署。Worker 用 Images binding 输出 WebP：cover 466×466/q90，fit 328 contain/q85，保留动画，源图或转换失败最多换源三次；固件已改用自定义域名，不再依赖 `workers.dev`。
