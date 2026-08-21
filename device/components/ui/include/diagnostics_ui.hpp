@@ -23,13 +23,18 @@ private:
         startup,
         unpaired,
         pairing_code,
+        pairing_recovery,
         pairing_success,
         settings,
         category,
         type,
         pairing_settings,
+        unpair_confirm,
         brightness,
+        timed_refresh,
+        custom_interval,
         loading,
+        bridge_unavailable,
         image,
         error,
     };
@@ -44,6 +49,10 @@ private:
     void select_category(std::uint32_t index);
     void select_type(std::uint32_t index);
     void select_brightness(std::uint32_t index);
+    void select_auto_refresh(std::uint32_t index);
+    void adjust_custom_interval(int delta);
+    void save_custom_interval();
+    void start_repair();
     void clear_pairing();
     void save_settings();
     void cancel_loading();
@@ -55,13 +64,23 @@ private:
     static void type_row_clicked(_lv_event_t* event);
     static void pairing_row_clicked(_lv_event_t* event);
     static void brightness_row_clicked(_lv_event_t* event);
+    static void timed_refresh_row_clicked(_lv_event_t* event);
     static void back_clicked(_lv_event_t* event);
+    static void repair_clicked(_lv_event_t* event);
     static void clear_pairing_clicked(_lv_event_t* event);
+    static void confirm_clear_pairing_clicked(_lv_event_t* event);
+    static void unpair_cancel_clicked(_lv_event_t* event);
     static void save_clicked(_lv_event_t* event);
     static void cancel_clicked(_lv_event_t* event);
+    static void bridge_back_clicked(_lv_event_t* event);
     static void category_choice_clicked(_lv_event_t* event);
     static void type_choice_clicked(_lv_event_t* event);
     static void brightness_choice_clicked(_lv_event_t* event);
+    static void auto_refresh_choice_clicked(_lv_event_t* event);
+    static void custom_interval_clicked(_lv_event_t* event);
+    static void interval_decrease_clicked(_lv_event_t* event);
+    static void interval_increase_clicked(_lv_event_t* event);
+    static void interval_save_clicked(_lv_event_t* event);
 
     Page page_{Page::startup};
     _lv_obj_t* root_{};
@@ -79,6 +98,8 @@ private:
     _lv_obj_t* type_value_{};
     _lv_obj_t* pairing_value_{};
     _lv_obj_t* brightness_value_{};
+    _lv_obj_t* auto_refresh_value_{};
+    _lv_obj_t* custom_interval_value_{};
     _lv_obj_t* type_row_{};
     void* webp_player_{};
     void* still_image_{};  // lv_draw_buf_t* holding the pre-decoded still wallpaper
@@ -94,6 +115,7 @@ private:
     std::uint32_t cache_error_deadline_ms_{};
     std::uint32_t wallpaper_revision_{};
     std::uint32_t request_revision_{};
+    std::uint16_t custom_interval_minutes_{5};
     bool controls_visible_{};
     bool controls_hiding_{};
 };

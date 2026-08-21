@@ -567,11 +567,16 @@ void worker(void*) {
                 current.settings.auto_refresh_minutes);
         }
         if (received && command.type == Command::save_settings) {
-            const esp_err_t result = persist_settings(command.settings);
+            WallpaperStatus current = wallpaper_snapshot();
+            current.settings.configured = true;
+            copy_text(current.settings.category, sizeof(current.settings.category),
+                      command.settings.category);
+            copy_text(current.settings.type, sizeof(current.settings.type), command.settings.type);
+            const esp_err_t result = persist_settings(current.settings);
             update_status([&](WallpaperStatus& value) {
                 value.last_error = result;
                 if (result == ESP_OK) {
-                    value.settings = command.settings;
+                    value.settings = current.settings;
                     copy_text(value.state, sizeof(value.state), "设置已保存");
                 } else {
                     copy_text(value.state, sizeof(value.state), "设置保存失败");

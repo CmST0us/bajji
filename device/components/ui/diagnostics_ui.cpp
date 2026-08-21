@@ -14,6 +14,7 @@
 #include "webp/demux.h"
 
 extern "C" const lv_font_t bajji_font_16;
+extern "C" const lv_font_t bajji_font_20;
 extern "C" const lv_font_t bajji_font_24;
 
 namespace bajji {
@@ -24,7 +25,7 @@ constexpr int kSafeX = 69;
 constexpr int kSafeWidth = 328;
 constexpr std::uint32_t kControlsDurationMs = 3000;
 constexpr std::uint32_t kFadeMs = 180;
-constexpr std::uint32_t kPairSuccessMs = 600;
+constexpr std::uint32_t kPairSuccessMs = 800;
 constexpr std::uint32_t kSpinnerDurationMs = 900;
 
 constexpr std::uint32_t kBase = 0x05070c;
@@ -66,7 +67,11 @@ constexpr Choice kAcgTypes[] = {{"pc", "电脑（pc）"}, {"mb", "手机（mb）
 constexpr Choice kFurryTypes[] = {
     {"z4k", "竖屏 4K"}, {"szs8k", "竖屏 8K"}, {"s4k", "横屏 4K"}, {"4k", "通用 4K"},
 };
-constexpr std::uint8_t kBrightnessLevels[] = {20, 40, 60, 80, 100};
+constexpr std::uint8_t kBrightnessLevels[] = {30, 60, 100};
+constexpr const char* kBrightnessLabels[] = {
+    "30%  ·  省电", "60%  ·  推荐", "100% ·  明亮",
+};
+constexpr std::uint16_t kAutoRefreshPresets[] = {0, 1, 5, 10};
 
 lv_color_t color(std::uint32_t value) { return lv_color_hex(value); }
 std::uint32_t now_ms() { return lv_tick_get(); }
@@ -115,7 +120,7 @@ lv_obj_t* status_pill(lv_obj_t* parent, const char* text, std::uint32_t tint, in
 
 lv_obj_t* title(lv_obj_t* parent, const char* text, int y) {
     auto* value = label(parent, text, kSafeX, y, kSafeWidth,
-                        kBodyFont, kPrimary);
+                        &bajji_font_24, kPrimary);
     lv_obj_set_style_text_letter_space(value, 1, 0);
     return value;
 }
@@ -161,16 +166,35 @@ lv_obj_t* spinner(lv_obj_t* parent, int x, int y, int size) {
 
 lv_obj_t* setting_row(lv_obj_t* parent, int y, const char* name, lv_obj_t** value_out,
                       lv_event_cb_t callback, void* context) {
-    auto* row = object(parent, kSafeX, y, kSafeWidth, 60, kSurface, 16);
+    auto* row = object(parent, kSafeX, y, kSafeWidth, 48, kSurface, 16);
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, color(kOverlay), 0);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, context);
-    label(row, name, 20, 7, 240, kBodyFont, kSecondary,
+    label(row, name, 20, 2, 240, kBodyFont, kSecondary,
           LV_TEXT_ALIGN_LEFT);
-    *value_out = label(row, "", 20, 31, 260, kBodyFont, kPrimary,
+    *value_out = label(row, "", 20, 22, 260, kBodyFont, kPrimary,
                        LV_TEXT_ALIGN_LEFT);
-    label(row, "›", 282, 11, 28, &lv_font_montserrat_28, kAccent);
+    label(row, "›", 282, 5, 28, &lv_font_montserrat_28, kAccent);
+    return row;
+}
+
+lv_obj_t* selectable_row(lv_obj_t* parent, const char* text, bool selected,
+                         lv_event_cb_t callback, void* context, int height = 48) {
+    auto* row = object(parent, 0, 0, kSafeWidth, height, kSurface, 16);
+    lv_obj_set_style_min_height(row, height, 0);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    if (selected) {
+        lv_obj_set_style_border_width(row, 2, 0);
+        lv_obj_set_style_border_color(row, color(kAccent), 0);
+    }
+    label(row, text, 16, (height - 20) / 2, 260, kBodyFont, kPrimary,
+          LV_TEXT_ALIGN_LEFT);
+    if (selected) {
+        label(row, LV_SYMBOL_OK, 280, (height - 18) / 2, 32,
+              &lv_font_montserrat_18, kAccent);
+    }
+    lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, context);
     return row;
 }
 
@@ -461,7 +485,7 @@ void ProductUI::create(const ble_link_status_t& link, const WallpaperStatus& wal
         if (!link.has_bond) show(Page::unpaired, wallpaper);
         else if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
-        else show(Page::loading, wallpaper);
+        else show(link.bridge_ready ? Page::loading : Page::bridge_unavailable, wallpaper);
     }
 }
 
@@ -482,6 +506,8 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     type_value_ = nullptr;
     pairing_value_ = nullptr;
     brightness_value_ = nullptr;
+    auto_refresh_value_ = nullptr;
+    custom_interval_value_ = nullptr;
     type_row_ = nullptr;
     controls_visible_ = false;
     controls_hiding_ = false;
@@ -531,7 +557,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             title(root_, "先与手机配对", 234);
             label(root_, "请打开手机端 Bajji\n发起设备配对请求", 93, 280, 280,
                   kBodyFont, kSecondary);
-            label(root_, "手机需联网 · 等待配对请求", 100, 364, 266,
+            label(root_, "需要联网 · 等待手机请求", 100, 364, 266,
                   kBodyFont, kWarning);
             break;
         case Page::pairing_code: {
@@ -542,7 +568,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             lv_obj_set_style_shadow_offset_y(modal, 12, 0);
             lv_obj_set_style_shadow_opa(modal, LV_OPA_30, 0);
             label(modal, "在手机上输入配对码", 0, 38, kSafeWidth,
-                  kBodyFont, kPrimary);
+                  &bajji_font_20, kPrimary);
             label(modal, "配对码将在 5 分钟后失效", 0, 76, kSafeWidth,
                   kBodyFont, kSecondary);
             pairing_code_ = label(modal, "--- ---", 0, 112, kSafeWidth,
@@ -554,16 +580,33 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                                                 passkey / 1000, passkey % 1000);
             break;
         }
+        case Page::pairing_recovery: {
+            auto* modal = object(root_, 69, 93, kSafeWidth, 280, kOverlay, 24);
+            lv_obj_set_style_border_width(modal, 1, 0);
+            lv_obj_set_style_border_color(modal, color(kError), 0);
+            label(modal, "配对未完成", 0, 58, kSafeWidth,
+                  &bajji_font_20, kPrimary);
+            label(modal, "配对码无效或已过期", 0, 96, kSafeWidth,
+                  kBodyFont, kSecondary);
+            label(modal, "!", 122, 126, 84, &lv_font_montserrat_48, kError);
+            label(modal, "请在手机上重新发起", 0, 208, kSafeWidth,
+                  kBodyFont, kError);
+            label(root_, "等待手机新的配对请求", 100, 398, 266,
+                  kBodyFont, kSecondary);
+            break;
+        }
         case Page::pairing_success: {
             auto* modal = object(root_, 69, 93, kSafeWidth, 280, kOverlay, 24);
             lv_obj_set_style_border_width(modal, 1, 0);
             lv_obj_set_style_border_color(modal, color(kSuccess), 0);
-            object(modal, 122, 34, 84, 84, kSurface, 42);
-            label(modal, LV_SYMBOL_OK, 122, 55, 84, &lv_font_montserrat_32, kSuccess);
-            label(modal, "配对成功", 0, 144, kSafeWidth,
-                  kBodyFont, kPrimary);
-            label(modal, "正在进入图片设置", 0, 190, kSafeWidth,
+            label(modal, "配对成功", 0, 38, kSafeWidth,
+                  &bajji_font_20, kPrimary);
+            label(modal, "已连接到手机", 0, 76, kSafeWidth,
+                  kBodyFont, kSecondary);
+            label(modal, "正在进入图片设置", 0, 112, kSafeWidth,
                   kBodyFont, kSuccess);
+            object(modal, 122, 160, 84, 84, kSurface, 42);
+            label(modal, LV_SYMBOL_OK, 122, 181, 84, &lv_font_montserrat_32, kSuccess);
             break;
         }
         case Page::settings: {
@@ -576,18 +619,20 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             settings_title(root_, "设备设置", 40);
             setting_row(root_, 94, "分类", &category_value_,
                         category_row_clicked, this);
-            type_row_ = setting_row(root_, 162, "类型", &type_value_,
+            type_row_ = setting_row(root_, 146, "类型", &type_value_,
                                     type_row_clicked, this);
-            setting_row(root_, 230, "配对设置", &pairing_value_,
+            setting_row(root_, 198, "配对设置", &pairing_value_,
                         pairing_row_clicked, this);
-            setting_row(root_, 298, "屏幕亮度", &brightness_value_,
+            setting_row(root_, 250, "屏幕亮度", &brightness_value_,
                         brightness_row_clicked, this);
-            auto* save = object(root_, 99, 374, 268, 52, kAccent, 26);
+            setting_row(root_, 302, "定时刷新", &auto_refresh_value_,
+                        timed_refresh_row_clicked, this);
+            auto* save = object(root_, 99, 364, 268, 48, kAccent, 24);
             lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(save, save_clicked, LV_EVENT_CLICKED, this);
-            label(save, "保存并加载", 0, 14, 268,
+            label(save, "保存图片参数并加载", 0, 13, 268,
                   kBodyFont, kBase);
-            label(root_, "A 返回图片 · 本地保存", kSafeX, 438, kSafeWidth,
+            label(root_, "A 返回图片 · 无图片时不可用", kSafeX, 424, kSafeWidth,
                   kBodyFont, kSuccess);
             update_settings_labels();
             break;
@@ -595,52 +640,130 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
         case Page::pairing_settings: {
             back_control(root_, back_clicked, this);
             settings_title(root_, "配对设置", 40);
-            status_pill(root_, latest_link_.has_bond ? "已配对" : "未配对",
-                        latest_link_.has_bond ? kSuccess : kWarning, 112);
-            label(root_, "解除后需在手机端\n重新发起配对请求", 93, 190, 280,
-                  kBodyFont, kSecondary);
-            auto* clear = object(root_, kSafeX, 280, kSafeWidth, 56, kSurface, 28);
+            auto* status_card = object(root_, kSafeX, 112, kSafeWidth, 92, kSurface, 20);
+            const bool connected = latest_link_.connected;
+            object(status_card, 20, 25, 10, 10,
+                   latest_link_.has_bond ? kSuccess : kWarning, 5);
+            label(status_card,
+                  latest_link_.has_bond
+                      ? (connected ? "已配对 · 手机已连接" : "已配对 · 手机未连接")
+                      : "未配对 · 等待手机",
+                  44, 17, 260, kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
+            label(status_card, latest_link_.bridge_ready ? "BLE bridge 已就绪" : "等待 BLE bridge",
+                  44, 50, 260, kBodyFont, kSecondary, LV_TEXT_ALIGN_LEFT);
+
+            auto* repair = object(root_, 99, 232, 268, 52, kAccent, 26);
+            lv_obj_add_flag(repair, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(repair, repair_clicked, LV_EVENT_CLICKED, this);
+            label(repair, "重新配对", 0, 15, 268, kBodyFont, kBase);
+
+            auto* clear = object(root_, 99, 296, 268, 52, kOverlay, 26);
             lv_obj_set_style_border_width(clear, 1, 0);
             lv_obj_set_style_border_color(clear, color(kError), 0);
             lv_obj_add_flag(clear, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(clear, clear_pairing_clicked, LV_EVENT_CLICKED, this);
-            label(clear, "解除配对", 0, 16, kSafeWidth, kBodyFont, kError);
-            label(root_, "A 返回设备设置", kSafeX, 376, kSafeWidth,
+            label(clear, "解除配对", 0, 15, 268, kBodyFont, kError);
+            label(root_, "操作后由手机重新发起配对", kSafeX, 390, kSafeWidth,
                   kBodyFont, kSecondary);
+            break;
+        }
+        case Page::unpair_confirm: {
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "解除配对？", 78);
+            label(root_, LV_SYMBOL_WARNING, 183, 126, 100,
+                  &lv_font_montserrat_48, kWarning);
+            label(root_, "设备将删除已保存的手机绑定\n图片参数与缓存不会清除",
+                  83, 210, 300, kBodyFont, kSecondary);
+            auto* cancel = object(root_, 99, 300, 268, 48, kAccent, 24);
+            lv_obj_add_flag(cancel, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(cancel, unpair_cancel_clicked, LV_EVENT_CLICKED, this);
+            label(cancel, "取消", 0, 13, 268, kBodyFont, kBase);
+            auto* confirm = object(root_, 99, 360, 268, 48, kOverlay, 24);
+            lv_obj_set_style_border_width(confirm, 1, 0);
+            lv_obj_set_style_border_color(confirm, color(kError), 0);
+            lv_obj_add_flag(confirm, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(confirm, confirm_clear_pairing_clicked,
+                                LV_EVENT_CLICKED, this);
+            label(confirm, "确认解除配对", 0, 13, 268, kBodyFont, kError);
             break;
         }
         case Page::brightness: {
             back_control(root_, back_clicked, this);
             settings_title(root_, "屏幕亮度", 40);
-            auto* list = object(root_, kSafeX, 102, kSafeWidth, 280, kBase, 0);
+            label(root_, "选择亮度", kSafeX, 104, kSafeWidth,
+                  kBodyFont, kSecondary, LV_TEXT_ALIGN_LEFT);
+            auto* list = object(root_, kSafeX, 132, kSafeWidth, 184, kBase, 0);
             lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
             lv_obj_set_style_pad_row(list, 8, 0);
             const auto current = BoardHal::instance().brightness();
-            for (const auto level : kBrightnessLevels) {
-                auto* row = object(list, 0, 0, kSafeWidth, 48, kSurface, 16);
-                lv_obj_set_style_min_height(row, 48, 0);
-                lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-                if (level == current) {
-                    lv_obj_set_style_border_width(row, 2, 0);
-                    lv_obj_set_style_border_color(row, color(kAccent), 0);
-                }
-                char text[8];
-                std::snprintf(text, sizeof(text), "%u%%", level);
-                label(row, text, 16, 14, 260, kBodyFont, kPrimary,
-                      LV_TEXT_ALIGN_LEFT);
-                if (level == current) {
-                    label(row, LV_SYMBOL_OK, 280, 14, 32,
-                          &lv_font_montserrat_18, kAccent);
-                }
-                lv_obj_add_event_cb(row, brightness_choice_clicked,
-                                    LV_EVENT_CLICKED, this);
+            for (std::size_t index = 0;
+                 index < sizeof(kBrightnessLevels) / sizeof(kBrightnessLevels[0]); ++index) {
+                selectable_row(list, kBrightnessLabels[index],
+                               kBrightnessLevels[index] == current,
+                               brightness_choice_clicked, this, 56);
             }
-            label(root_, "A 返回设备设置", kSafeX, 397, kSafeWidth,
+            label(root_, "选择即生效 · A 返回设置主页", kSafeX, 390, kSafeWidth,
                   kBodyFont, kSecondary);
+            break;
+        }
+        case Page::timed_refresh: {
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "定时刷新", 40);
+            auto* list = object(root_, kSafeX, 94, kSafeWidth, 266, kBase, 0);
+            lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_row(list, 6, 0);
+            const auto current = draft_.auto_refresh_minutes;
+            constexpr const char* labels[] = {"关闭", "1 分钟", "5 分钟", "10 分钟"};
+            for (std::size_t index = 0;
+                 index < sizeof(kAutoRefreshPresets) / sizeof(kAutoRefreshPresets[0]); ++index) {
+                selectable_row(list, labels[index], current == kAutoRefreshPresets[index],
+                               auto_refresh_choice_clicked, this);
+            }
+            const bool custom = current && current != 1 && current != 5 && current != 10;
+            selectable_row(list, "自定义…", custom, custom_interval_clicked, this);
+            label(root_, "更多间隔请选自定义", kSafeX, 386, kSafeWidth,
+                  kBodyFont, kSecondary);
+            break;
+        }
+        case Page::custom_interval: {
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "自定义间隔", 40);
+            label(root_, "刷新频率", kSafeX, 104, kSafeWidth,
+                  kBodyFont, kSecondary);
+
+            auto* decrease = object(root_, 55, 170, 72, 72, kSurface, 36);
+            lv_obj_add_flag(decrease, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(decrease, interval_decrease_clicked,
+                                LV_EVENT_CLICKED, this);
+            label(decrease, LV_SYMBOL_MINUS, 18, 18, 36,
+                  &lv_font_montserrat_32, kAccent);
+
+            auto* value = object(root_, 149, 136, 168, 82, kSurface, 28);
+            lv_obj_set_style_border_width(value, 2, 0);
+            lv_obj_set_style_border_color(value, color(kAccent), 0);
+            custom_interval_value_ = label(value, "5", 0, 2, 168,
+                                           &lv_font_montserrat_48, kAccent);
+            label(value, "分钟", 0, 60, 168, kBodyFont, kSecondary);
+
+            auto* increase = object(root_, 339, 170, 72, 72, kSurface, 36);
+            lv_obj_add_flag(increase, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(increase, interval_increase_clicked,
+                                LV_EVENT_CLICKED, this);
+            label(increase, LV_SYMBOL_PLUS, 18, 18, 36,
+                  &lv_font_montserrat_32, kAccent);
+
+            auto* save = object(root_, 99, 314, 268, 52, kAccent, 26);
+            lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(save, interval_save_clicked, LV_EVENT_CLICKED, this);
+            label(save, "保存间隔", 0, 15, 268, kBodyFont, kBase);
+            label(root_, "范围 1–1440 分钟 · 保存后重新计时",
+                  kSafeX, 386, kSafeWidth, kBodyFont, kSuccess);
+            lv_label_set_text_fmt(custom_interval_value_, "%u", custom_interval_minutes_);
             break;
         }
         case Page::category:
         case Page::type: {
+            back_control(root_, back_clicked, this);
             settings_title(root_, next == Page::category ? "选择分类" : "选择类型", 56);
             auto* list = object(root_, kSafeX, 102, kSafeWidth, 280, kBase, 0);
             lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
@@ -652,25 +775,25 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             std::size_t count = sizeof(kCategories) / sizeof(kCategories[0]);
             if (next == Page::type) choices = choices_for(draft_.category, &count);
             for (std::size_t i = 0; i < count; ++i) {
-                auto* row = object(list, 0, 0, kSafeWidth, 48, kSurface, 16);
-                lv_obj_set_style_min_height(row, 48, 0);
-                lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
                 const bool selected = std::strcmp(next == Page::category ? draft_.category : draft_.type,
                                                   choices[i].value) == 0;
-                if (selected) {
-                    lv_obj_set_style_border_width(row, 2, 0);
-                    lv_obj_set_style_border_color(row, color(kAccent), 0);
-                }
-                label(row, choices[i].label, 16, 14, 260,
-                      kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
-                if (selected) label(row, LV_SYMBOL_OK, 280, 14, 32, &lv_font_montserrat_18, kAccent);
-                lv_obj_add_event_cb(row, next == Page::category ? category_choice_clicked
-                                                                : type_choice_clicked,
-                                    LV_EVENT_CLICKED, this);
+                selectable_row(list, choices[i].label, selected,
+                               next == Page::category ? category_choice_clicked
+                                                      : type_choice_clicked,
+                               this);
             }
-            label(root_, next == Page::category ? "向上滑动查看更多" : "选择后自动返回",
-                  kSafeX, 397, kSafeWidth, kBodyFont,
-                  next == Page::category ? kSecondary : kAccent);
+            if (next == Page::category) {
+                label(root_, "向上滑动查看更多", kSafeX, 397, kSafeWidth,
+                      kBodyFont, kSecondary);
+            } else {
+                char footer[64];
+                std::snprintf(footer, sizeof(footer), "当前分类：%s",
+                              choice_label(kCategories,
+                                  sizeof(kCategories) / sizeof(kCategories[0]),
+                                  draft_.category, "全部"));
+                label(root_, footer, kSafeX, 397, kSafeWidth,
+                      kBodyFont, kAccent);
+            }
             break;
         }
         case Page::loading: {
@@ -686,12 +809,37 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                                                             : "通过 BLE 使用手机网络",
                                    kSafeX, 376, kSafeWidth,
                                    kBodyFont, kSecondary);
-            auto* cancel = object(root_, 153, 402, 160, 48, kSurface, 24);
+            auto* cancel = object(root_, 133, 398, 200, 48, kSurface, 24);
             lv_obj_set_style_border_width(cancel, 1, 0);
             lv_obj_set_style_border_color(cancel, color(kSecondary), 0);
             lv_obj_add_flag(cancel, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(cancel, cancel_clicked, LV_EVENT_CLICKED, this);
-            label(cancel, "取消", 0, 14, 160, kBodyFont, kPrimary);
+            label(cancel, "取消请求", 0, 14, 200, kBodyFont, kPrimary);
+            break;
+        }
+        case Page::bridge_unavailable: {
+            settings_title(root_, "手机未连接", 62);
+            auto* phone = object(root_, 212, 120, 42, 72, kBase, 12);
+            lv_obj_set_style_border_width(phone, 5, 0);
+            lv_obj_set_style_border_color(phone, color(kWarning), 0);
+            object(phone, 18, 57, 6, 6, kWarning, 3);
+            static lv_point_precise_t slash[] = {{0, 0}, {55, 55}};
+            auto* line = lv_line_create(root_);
+            lv_line_set_points(line, slash, 2);
+            lv_obj_set_pos(line, 205, 128);
+            lv_obj_set_style_line_width(line, 5, 0);
+            lv_obj_set_style_line_color(line, color(kWarning), 0);
+            lv_obj_set_style_line_rounded(line, true, 0);
+            lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
+            auto* message = label(root_, "请打开手机端 Bajji\n并保持蓝牙连接",
+                                  83, 218, 300, kBodyFont, kPrimary);
+            lv_obj_set_style_text_line_space(message, 10, 0);
+            auto* back = object(root_, 133, 326, 200, 48, kAccent, 24);
+            lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(back, bridge_back_clicked, LV_EVENT_CLICKED, this);
+            label(back, "返回设置", 0, 14, 200, kBodyFont, kBase);
+            label(root_, "连接恢复后可重新加载图片", 100, 397, 266,
+                  kBodyFont, kSecondary);
             break;
         }
         case Page::image:
@@ -1058,7 +1206,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     lv_obj_set_style_bg_opa(controls_, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(controls_, LV_OBJ_FLAG_CLICKABLE);
 
-    auto* a = object(controls_, 35, 30, 132, 56, kButtonA, 28);
+    auto* a = object(controls_, 36, 30, 132, 56, kButtonA, 28);
     lv_obj_set_style_border_width(a, 1, 0);
     lv_obj_set_style_border_color(a, color(0xffffff), 0);
     lv_obj_set_style_border_opa(a, LV_OPA_30, 0);
@@ -1152,6 +1300,13 @@ void ProductUI::update_settings_labels() {
     if (brightness_value_) {
         lv_label_set_text_fmt(brightness_value_, "%u%%", BoardHal::instance().brightness());
     }
+    if (auto_refresh_value_) {
+        if (draft_.auto_refresh_minutes) {
+            lv_label_set_text_fmt(auto_refresh_value_, "%u 分钟", draft_.auto_refresh_minutes);
+        } else {
+            lv_label_set_text(auto_refresh_value_, "关闭");
+        }
+    }
     if (!category_value_ || !type_value_) return;
     lv_label_set_text(category_value_, choice_label(kCategories,
         sizeof(kCategories) / sizeof(kCategories[0]), draft_.category, "全部"));
@@ -1211,6 +1366,33 @@ void ProductUI::select_brightness(std::uint32_t index) {
     show_settings_with_draft();
 }
 
+void ProductUI::select_auto_refresh(std::uint32_t index) {
+    if (index >= sizeof(kAutoRefreshPresets) / sizeof(kAutoRefreshPresets[0])) return;
+    const std::uint16_t minutes = kAutoRefreshPresets[index];
+    if (wallpaper_set_auto_refresh(minutes) != ESP_OK) return;
+    draft_.auto_refresh_minutes = minutes;
+    latest_wallpaper_.settings.auto_refresh_minutes = minutes;
+    show_settings_with_draft();
+}
+
+void ProductUI::adjust_custom_interval(int delta) {
+    const int next = std::clamp<int>(static_cast<int>(custom_interval_minutes_) + delta,
+                                     1, 1440);
+    custom_interval_minutes_ = static_cast<std::uint16_t>(next);
+    if (custom_interval_value_) {
+        lv_label_set_text_fmt(custom_interval_value_, "%u", custom_interval_minutes_);
+    }
+}
+
+void ProductUI::save_custom_interval() {
+    if (wallpaper_set_auto_refresh(custom_interval_minutes_) != ESP_OK) return;
+    draft_.auto_refresh_minutes = custom_interval_minutes_;
+    latest_wallpaper_.settings.auto_refresh_minutes = custom_interval_minutes_;
+    show_settings_with_draft();
+}
+
+void ProductUI::start_repair() { clear_pairing(); }
+
 void ProductUI::clear_pairing() {
     if (ble_link_clear_bond() != ESP_OK) return;
     latest_link_.has_bond = false;
@@ -1223,7 +1405,8 @@ void ProductUI::save_settings() {
     latest_wallpaper_.settings = draft_;
     latest_wallpaper_.settings.configured = true;
     request_revision_ = latest_wallpaper_.request_revision;
-    show(Page::loading, latest_wallpaper_);
+    show(latest_link_.bridge_ready ? Page::loading : Page::bridge_unavailable,
+         latest_wallpaper_);
 }
 
 void ProductUI::cancel_loading() {
@@ -1261,7 +1444,9 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
     latest_link_ = link;
     const std::uint32_t now = now_ms();
 
-    if (link.passkey && page_ != Page::pairing_code) show(Page::pairing_code, wallpaper, link.passkey);
+    if (link.passkey && page_ != Page::pairing_code) {
+        show(Page::pairing_code, wallpaper, link.passkey);
+    }
     if (page_ == Page::pairing_code) {
         // lv_label_set_text_fmt() frees, allocates, lays out, and invalidates even when the
         // formatted text is unchanged (lv_label.c:138-162).
@@ -1270,19 +1455,21 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
                                   link.passkey / 1000, link.passkey % 1000);
         }
         if (link.has_bond && link.bonded) show(Page::pairing_success, wallpaper);
-        else if (!link.passkey && !link.has_bond) show(Page::unpaired, wallpaper);
+        else if (!link.passkey && !link.has_bond) show(Page::pairing_recovery, wallpaper);
+    } else if (page_ == Page::pairing_recovery && link.has_bond) {
+        show(Page::pairing_success, wallpaper);
     } else if (page_ == Page::startup && link.initialized) {
         if (!link.has_bond) show(Page::unpaired, wallpaper);
         else if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
-        else show(Page::loading, wallpaper);
+        else show(link.bridge_ready ? Page::loading : Page::bridge_unavailable, wallpaper);
     } else if (page_ == Page::unpaired && link.has_bond) {
         show(Page::pairing_success, wallpaper);
     } else if (page_ == Page::pairing_success &&
                deadline_passed(now, page_since_ms_ + kPairSuccessMs)) {
         if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
-        else show(Page::loading, wallpaper);
+        else show(link.bridge_ready ? Page::loading : Page::bridge_unavailable, wallpaper);
     }
 
     if (buttons.a_pressed) {
@@ -1291,14 +1478,25 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
             return;
         }
         if (page_ == Page::category || page_ == Page::type ||
-            page_ == Page::pairing_settings || page_ == Page::brightness) {
+            page_ == Page::pairing_settings || page_ == Page::brightness ||
+            page_ == Page::timed_refresh) {
             show_settings_with_draft();
+            return;
+        }
+        if (page_ == Page::custom_interval) {
+            show(Page::timed_refresh, latest_wallpaper_);
+            return;
+        }
+        if (page_ == Page::unpair_confirm) {
+            show(Page::pairing_settings, latest_wallpaper_);
             return;
         }
     }
 
     if (page_ == Page::loading) {
-        if (wallpaper.has_cache) {
+        if (!link.bridge_ready && !wallpaper.busy) {
+            show(Page::bridge_unavailable, wallpaper);
+        } else if (wallpaper.has_cache) {
             wallpaper_revision_ = wallpaper.revision;
             display_mode_ = wallpaper.settings.display_mode;
             show(Page::image, wallpaper);
@@ -1366,6 +1564,10 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
             controls_visible_ = false;
         }
     } else if (page_ == Page::error && buttons.b_pressed) {
+        if (!link.bridge_ready) {
+            show(Page::bridge_unavailable, wallpaper);
+            return;
+        }
         wallpaper_request_refresh();
         request_revision_ = wallpaper.request_revision;
         show(Page::loading, wallpaper);
@@ -1391,19 +1593,43 @@ void ProductUI::brightness_row_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
     self->show(Page::brightness, self->latest_wallpaper_);
 }
+void ProductUI::timed_refresh_row_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->show(Page::timed_refresh, self->latest_wallpaper_);
+}
 void ProductUI::back_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
     if (self->page_ == Page::settings) self->return_to_image();
-    else self->show_settings_with_draft();
+    else if (self->page_ == Page::custom_interval) {
+        self->show(Page::timed_refresh, self->latest_wallpaper_);
+    } else if (self->page_ == Page::unpair_confirm) {
+        self->show(Page::pairing_settings, self->latest_wallpaper_);
+    } else {
+        self->show_settings_with_draft();
+    }
+}
+void ProductUI::repair_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->start_repair();
 }
 void ProductUI::clear_pairing_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->show(Page::unpair_confirm, self->latest_wallpaper_);
+}
+void ProductUI::confirm_clear_pairing_clicked(lv_event_t* event) {
     static_cast<ProductUI*>(lv_event_get_user_data(event))->clear_pairing();
+}
+void ProductUI::unpair_cancel_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->show(Page::pairing_settings, self->latest_wallpaper_);
 }
 void ProductUI::save_clicked(lv_event_t* event) {
     static_cast<ProductUI*>(lv_event_get_user_data(event))->save_settings();
 }
 void ProductUI::cancel_clicked(lv_event_t* event) {
     static_cast<ProductUI*>(lv_event_get_user_data(event))->cancel_loading();
+}
+void ProductUI::bridge_back_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->show_settings_with_draft();
 }
 void ProductUI::category_choice_clicked(lv_event_t* event) {
     const auto index = static_cast<std::uint32_t>(lv_obj_get_index(lv_event_get_target_obj(event)));
@@ -1416,5 +1642,25 @@ void ProductUI::type_choice_clicked(lv_event_t* event) {
 void ProductUI::brightness_choice_clicked(lv_event_t* event) {
     const auto index = static_cast<std::uint32_t>(lv_obj_get_index(lv_event_get_target_obj(event)));
     static_cast<ProductUI*>(lv_event_get_user_data(event))->select_brightness(index);
+}
+void ProductUI::auto_refresh_choice_clicked(lv_event_t* event) {
+    const auto index = static_cast<std::uint32_t>(lv_obj_get_index(lv_event_get_target_obj(event)));
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->select_auto_refresh(index);
+}
+void ProductUI::custom_interval_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->custom_interval_minutes_ = self->draft_.auto_refresh_minutes
+                                         ? self->draft_.auto_refresh_minutes
+                                         : 5;
+    self->show(Page::custom_interval, self->latest_wallpaper_);
+}
+void ProductUI::interval_decrease_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->adjust_custom_interval(-1);
+}
+void ProductUI::interval_increase_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->adjust_custom_interval(1);
+}
+void ProductUI::interval_save_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->save_custom_interval();
 }
 }  // namespace bajji
