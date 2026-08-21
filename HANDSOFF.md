@@ -8,25 +8,11 @@
 
 ---
 
-## 2026-08-21 · 待办：`BMI270_BMM150_Sensor.patch` 还没提交
+## 2026-08-21 · GIF 帧率根因已修，最终代理尺寸待新图实测
 
-`device/deps.lock.json` 里已经登记了 `"patch": "BMI270_BMM150_Sensor.patch"` 并且**已随 `97d0955` 提交**，但补丁文件本身 `device/patches/BMI270_BMM150_Sensor.patch` 还是 untracked。
+真机聚合探针确认当前 240×259 GIF 被 LVGL 放大到 466×466：源帧延迟约 75–100 ms、解码约 15–20 ms/帧，但抗锯齿缩放后只有约 3.7 FPS；关抗锯齿约 4.8–5.2 FPS。根因和排除项已写进 [`wiki/gif-frame-rate.md`](wiki/gif-frame-rate.md)。
 
-现在这个状态下，别人干净 checkout 之后跑 `fetch_deps.py` 会因为找不到补丁文件而失败。**谁先动这块谁把它 `git add` 上。**
-
-## 2026-08-21 · 临时插桩已全部清理
-
-排查期间在这些地方加过临时日志，**现在都已经还原，`grep TEMPORARY` 是干净的**：
-
-- `device/components/board_hal/board_hal.cpp`
-- `device/components/ui/diagnostics_ui.cpp`
-- `device/vendor/lvgl/src/core/lv_refr.c`、`src/draw/lv_draw.c`、`src/draw/sw/lv_draw_sw_blur.c`、`src/draw/sw/lv_draw_sw_img.c`
-
-vendor 里剩下的改动（`lvgl/src/libs/tjpgd/tjpgdcnf.h` 等）**不是插桩**，是真实改动，别顺手还原。要查 vendor 状态用：
-
-```sh
-for d in device/vendor/*/; do echo "== $d"; git -C "$d" status --short; done
-```
+代理现在按显示模式输出目标尺寸（cover 466/outside，fit 328/inside，不再 `we`），避免逐帧缩放；直连回退用无抗锯齿兜底。host tests、O2 完整构建通过，最终无探针 app 已烧写并正常启动。**新代理尺寸的最终 FPS 还要等手机连接后刷新出一张新 GIF 再测；旧缓存不会自动重编码。**
 
 ## 2026-08-21 · 壁纸分区换成了 FAT，首次开机会重新格式化
 

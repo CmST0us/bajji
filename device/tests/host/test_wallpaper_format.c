@@ -102,15 +102,17 @@ int main(void) {
 
     char proxied[512];
     assert(wallpaper_build_random_url("bq", "eciyuan", 7, url, sizeof(url)) == 0);
-    assert(wallpaper_build_proxy_url(url, proxied, sizeof(proxied)) == 0);
+    assert(wallpaper_build_proxy_url(url, false, proxied, sizeof(proxied)) == 0);
     assert(strcmp(proxied,
                   "https://images.weserv.nl/?url=https%3A%2F%2Fuapis.cn%2Fapi%2Fv1%2Frandom"
                   "%2Fimage%3Fcategory%3Dbq%26type%3Deciyuan%26_%3D7"
-                  "&w=520&h=520&fit=outside&we&n=-1") == 0);
+                  "&w=466&h=466&fit=outside&n=-1") == 0);
+    assert(wallpaper_build_proxy_url(url, true, proxied, sizeof(proxied)) == 0);
+    assert(strstr(proxied, "&w=328&h=328&fit=inside&n=-1") != NULL);
     // Every reserved character has to survive as an escape, or the proxy would read the
     // origin's query parameters as its own.
     assert(strstr(proxied, "?category=") == NULL && strstr(proxied, "&type=") == NULL);
     char tiny[32];
-    assert(wallpaper_build_proxy_url(url, tiny, sizeof(tiny)) != 0);
+    assert(wallpaper_build_proxy_url(url, false, tiny, sizeof(tiny)) != 0);
     return 0;
 }

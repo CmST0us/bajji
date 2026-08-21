@@ -44,9 +44,9 @@ int wallpaper_settings_valid(const char* category, const char* type);
 int wallpaper_build_random_url(const char* category, const char* type, uint32_t nonce,
                                char* output, size_t output_size);
 
-// Wraps `origin` in the images.weserv.nl resizing proxy. See the notes on kProxyPrefix in
-// wallpaper_format.c for why the device fetches through it rather than directly.
-int wallpaper_build_proxy_url(const char* origin, char* output, size_t output_size);
+// Wraps `origin` in the images.weserv.nl resizing proxy. `fit` selects the clear image's
+// 328 px contain target; cover mode uses the display's 466 px outside target.
+int wallpaper_build_proxy_url(const char* origin, bool fit, char* output, size_t output_size);
 
 #ifdef __cplusplus
 }

@@ -40,19 +40,31 @@ extern "C" void app_main() {
 
     TickType_t last_stats_tick = xTaskGetTickCount();
     TickType_t last_ui_tick = last_stats_tick;
+    bajji::ButtonEvents pending_buttons{};
     std::uint64_t last_rx_bytes = 0;
     std::uint64_t last_tx_bytes = 0;
     while (true) {
-        // ButtonState's chord window is 120 ms. Keep GPIO sampling independent of the
-        // heavier UI/status refresh so a normal short press and the second chord edge
-        // cannot both fall between 100 ms refreshes.
+        // GPIO sampling runs in the 10 ms timer callback. Drain its state independently
+        // of the heavier UI/status refresh so edges do not wait for the 100 ms cadence.
         board.poll();
+        const bajji::ButtonEvents buttons = board.take_button_events();
+        // Keep edges until the UI lock succeeds, but use the latest hold progress.
+        pending_buttons.a_pressed |= buttons.a_pressed;
+        pending_buttons.b_pressed |= buttons.b_pressed;
+        pending_buttons.chord_started |= buttons.chord_started;
+        pending_buttons.chord_completed |= buttons.chord_completed;
+        pending_buttons.chord_cancelled |= buttons.chord_cancelled;
+        pending_buttons.chord_progress_ms = buttons.chord_progress_ms;
         const TickType_t now = xTaskGetTickCount();
-        if (now - last_ui_tick < pdMS_TO_TICKS(100)) {
+        const bool input_pending = pending_buttons.a_pressed || pending_buttons.b_pressed ||
+                                   pending_buttons.chord_started ||
+                                   pending_buttons.chord_completed ||
+                                   pending_buttons.chord_cancelled ||
+                                   pending_buttons.chord_progress_ms;
+        if (!input_pending && now - last_ui_tick < pdMS_TO_TICKS(100)) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        last_ui_tick = now;
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();
         const bool online = ip.link_up && ip.time_valid;
@@ -61,12 +73,12 @@ extern "C" void app_main() {
             bajji::wallpaper_set_online(online);
             wallpaper = bajji::wallpaper_snapshot();
         }
-        // Claim the button events only once the UI can act on them. Taking them first
-        // dropped every press made while the LVGL task held the lock; they now queue up
-        // in ButtonState instead.
-        if (board.lvgl_lock(0)) {
-            const bajji::ButtonEvents buttons = board.take_button_events();
-            ui.refresh(board.snapshot(), link, wallpaper, buttons);
+        // The timer task keeps sampling GPIO while this task waits. Once an edge is queued,
+        // wait for the current render to release LVGL instead of missing every short gap.
+        if (board.lvgl_lock(input_pending ? 1000 : 0)) {
+            ui.refresh(board.snapshot(), link, wallpaper, pending_buttons);
+            pending_buttons = {};
+            last_ui_tick = now;
             board.lvgl_unlock();
         }
         const TickType_t elapsed = now - last_stats_tick;

@@ -74,6 +74,7 @@ bmi270_bmm150_handle_t imu = nullptr;
 SemaphoreHandle_t lvgl_mutex = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
 ButtonState buttons;
+portMUX_TYPE button_mux = portMUX_INITIALIZER_UNLOCKED;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
 std::int64_t sensor_poll_us = 0;
@@ -424,7 +425,9 @@ bool init_display_and_lvgl() {
     esp_timer_handle_t timer = nullptr;
     if (esp_timer_create(&timer_config, &timer) != ESP_OK ||
         esp_timer_start_periodic(timer, 10000) != ESP_OK) return false;
-    return xTaskCreate(lvgl_task, "lvgl", 16384, nullptr, 3, nullptr) == pdPASS;
+    // ESP_TASK_MAIN_PRIO is 1 (esp_task.h:56). Matching it lets the 1 kHz scheduler run
+    // input delivery between software-render slices; priority 3 caused measured 1.1 s gaps.
+    return xTaskCreate(lvgl_task, "lvgl", 16384, nullptr, 1, nullptr) == pdPASS;
 }
 
 bool init_audio() {
@@ -501,7 +504,16 @@ bool init_rtc() {
     return read_register(rtc_device, 0x10, now.data(), now.size());
 }
 
-void init_buttons() {
+void button_tick(void*) {
+    const auto now = esp_timer_get_time();
+    const bool a = gpio_get_level(kButtonA) == 0;
+    const bool b = gpio_get_level(kButtonB) == 0;
+    portENTER_CRITICAL(&button_mux);
+    buttons.update(a, b, static_cast<std::uint64_t>(now / 1000));
+    portEXIT_CRITICAL(&button_mux);
+}
+
+bool init_buttons() {
     const gpio_config_t config = {
         .pin_bit_mask = (1ULL << kButtonA) | (1ULL << kButtonB),
         .mode = GPIO_MODE_INPUT,
@@ -509,7 +521,15 @@ void init_buttons() {
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    gpio_config(&config);
+    if (gpio_config(&config) != ESP_OK) return false;
+    esp_timer_create_args_t timer_config{};
+    timer_config.callback = button_tick;
+    timer_config.name = "button_tick";
+    esp_timer_handle_t timer = nullptr;
+    if (esp_timer_create(&timer_config, &timer) != ESP_OK) return false;
+    if (esp_timer_start_periodic(timer, 10000) == ESP_OK) return true;
+    esp_timer_delete(timer);
+    return false;
 }
 
 std::uint8_t bcd(std::uint8_t value) { return (value >> 4U) * 10U + (value & 0x0fU); }
@@ -564,8 +584,9 @@ esp_err_t BoardHal::init() {
     status_.audio = init_audio() ? Health::ok : Health::error;
     status_.imu = init_imu() ? Health::ok : Health::error;
     status_.rtc = init_rtc() ? Health::ok : Health::error;
-    init_buttons();
-    status_.buttons = Health::ok;
+    // GIF rendering and image-mode changes can block the main loop for hundreds of
+    // milliseconds, so the ESP timer task owns the 10 ms button state sampling.
+    status_.buttons = init_buttons() ? Health::ok : Health::error;
     poll();
     ESP_LOGI(kTag, "hardware bring-up complete");
     return status_.display == Health::ok ? ESP_OK : ESP_FAIL;
@@ -575,9 +596,6 @@ BoardStatus BoardHal::snapshot() { return status_; }
 
 void BoardHal::poll() {
     const auto now = esp_timer_get_time();
-    const bool a = gpio_get_level(kButtonA) == 0;
-    const bool b = gpio_get_level(kButtonB) == 0;
-    buttons.update(a, b, static_cast<std::uint64_t>(now / 1000));
 
     if (motor_stop_us && now >= motor_stop_us) stop_vibration();
     if (now - battery_poll_us >= 1000000) {
@@ -661,7 +679,12 @@ void BoardHal::shutdown() {
     if (pmic) pmic->shutdown();
 }
 
-ButtonEvents BoardHal::take_button_events() { return buttons.take_events(); }
+ButtonEvents BoardHal::take_button_events() {
+    portENTER_CRITICAL(&button_mux);
+    const ButtonEvents events = buttons.take_events();
+    portEXIT_CRITICAL(&button_mux);
+    return events;
+}
 
 bool BoardHal::lvgl_lock(std::uint32_t timeout_ms) {
     return lvgl_mutex && xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;

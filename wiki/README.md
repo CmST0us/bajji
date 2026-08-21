@@ -11,6 +11,7 @@
 | [lvgl-blur-seam.md](lvgl-blur-seam.md) | `clip_corner` 会把子对象拆成上下两个图层画，把 LVGL 的 IIR 模糊切断了 |
 | [instrumenting-over-guessing.md](instrumenting-over-guessing.md) | 上面那条缝是怎么找出来的，以及为什么五个"读源码推出来"的假设全错 |
 | [wallpaper-cache-filesystem.md](wallpaper-cache-filesystem.md) | SPIFFS 为什么会在换壁纸时把看门狗喂爆，以及换成 FAT 的经过 |
+| [gif-frame-rate.md](gif-frame-rate.md) | 小 GIF 被 LVGL 从 PSRAM 逐帧放大时为什么只剩约 4 FPS |
 | [shared-i2c-bus.md](shared-i2c-bus.md) | 共享 I2C 总线上反复创建销毁设备句柄会和别的任务打架 |
 | [nimble-coc-buffering.md](nimble-coc-buffering.md) | NimBLE CoC 的 SDU slot、credit 和 mbuf block 为什么不能混为一谈 |
 | [vendor-patching.md](vendor-patching.md) | `device/vendor/**` 是怎么固定和打补丁的，直接改为什么会凭空消失 |

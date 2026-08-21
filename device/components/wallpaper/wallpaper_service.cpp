@@ -479,7 +479,9 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
         const bool direct = attempt == kDownloadAttempts;
         if (direct) {
             copy_text(url, sizeof(url), origin);
-        } else if (wallpaper_build_proxy_url(origin, url, sizeof(url)) != 0) {
+        } else if (wallpaper_build_proxy_url(origin,
+                                             settings.display_mode == DisplayMode::fit_blur,
+                                             url, sizeof(url)) != 0) {
             return ESP_ERR_INVALID_ARG;
         }
         result = download_image(url, info);

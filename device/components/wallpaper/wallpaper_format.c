@@ -251,18 +251,21 @@ static int percent_encode(const char* input, char* output, size_t output_size) {
 // more, which take minutes to pull over the BLE tunnel. images.weserv.nl decodes and
 // re-encodes whatever it fetches, so the JPEG that reaches us is baseline, and it resizes
 // before sending, so the transfer is a fraction of the size.
-//   fit=outside sizes the short edge to 520, which is what the blurred background needs and
-//   what the device would box-filter down to anyway.
-//   we suppresses enlargement, so a small source is left alone.
+//   Cover mode sizes the short edge to the 466 px display, so LVGL can crop without scaling.
+//   Fit mode sizes the long edge to the 328 px clear-image box for the same reason.
+//   Do not use `we`: leaving a small animation unchanged makes LVGL enlarge it in software
+//   every frame. The blurred background is rendered once and can afford to scale either size.
 //   n=-1 keeps every frame of an animation; the default would flatten a GIF to its first.
 static const char kProxyPrefix[] = "https://images.weserv.nl/?url=";
-static const char kProxySuffix[] = "&w=520&h=520&fit=outside&we&n=-1";
+static const char kProxyCoverSuffix[] = "&w=466&h=466&fit=outside&n=-1";
+static const char kProxyFitSuffix[] = "&w=328&h=328&fit=inside&n=-1";
 
-int wallpaper_build_proxy_url(const char* origin, char* output, size_t output_size) {
+int wallpaper_build_proxy_url(const char* origin, bool fit, char* output, size_t output_size) {
     if (!origin || !output || !output_size) return -1;
     char encoded[385];
     if (percent_encode(origin, encoded, sizeof(encoded)) != 0) return -1;
     const int length =
-        snprintf(output, output_size, "%s%s%s", kProxyPrefix, encoded, kProxySuffix);
+        snprintf(output, output_size, "%s%s%s", kProxyPrefix, encoded,
+                 fit ? kProxyFitSuffix : kProxyCoverSuffix);
     return length > 0 && (size_t)length < output_size ? 0 : -1;
 }

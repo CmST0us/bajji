@@ -1319,6 +1319,7 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
             deadline_passed(now, cache_error_deadline_ms_)) {
             lv_obj_add_flag(cache_error_, LV_OBJ_FLAG_HIDDEN);
         }
+        if (buttons.a_pressed || buttons.b_pressed || buttons.chord_started) show_controls();
         if (buttons.a_pressed) toggle_mode(wallpaper);
         if (buttons.b_pressed) refresh_image(wallpaper);
         if (buttons.chord_started && hold_overlay_) lv_obj_remove_flag(hold_overlay_, LV_OBJ_FLAG_HIDDEN);
