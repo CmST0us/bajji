@@ -25,6 +25,7 @@
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
 #include "esp_codec_dev_defaults.h"
+#include "esp_cache.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -45,9 +46,12 @@ constexpr gpio_num_t kScl = GPIO_NUM_48;
 constexpr gpio_num_t kButtonA = GPIO_NUM_2;
 constexpr gpio_num_t kButtonB = GPIO_NUM_1;
 constexpr gpio_num_t kSpeakerPa = GPIO_NUM_14;
+constexpr gpio_num_t kDisplayTe = GPIO_NUM_38;
 constexpr int kSampleRate = 44100;
 constexpr int kDisplayPowerAttempts = 3;
 constexpr int kDisplayPowerReadyMs = 80;
+constexpr std::uint32_t kTeWaitMs = 30;
+constexpr std::size_t kDmaChunkBytes = 16 * 1024;
 
 i2c_bus_handle_t i2c_bus = nullptr;
 i2c_master_bus_handle_t native_i2c_bus = nullptr;
@@ -57,6 +61,7 @@ i2c_master_dev_handle_t touch_device = nullptr;
 i2c_master_dev_handle_t rtc_device = nullptr;
 bmi270_bmm150_handle_t imu = nullptr;
 SemaphoreHandle_t lvgl_mutex = nullptr;
+SemaphoreHandle_t display_te = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
 ButtonState buttons;
 std::int64_t motor_stop_us = 0;
@@ -117,7 +122,7 @@ public:
         panel_config.readable = false;
         panel_.config(panel_config);
         setPanel(&panel_);
-        lgfx::pinMode(GPIO_NUM_38, lgfx::pin_mode_t::input_pullup);
+        lgfx::pinMode(kDisplayTe, lgfx::pin_mode_t::input_pullup);
 
         if (!LGFX_Device::init_impl(use_reset, use_clear)) return false;
         panel_.setBrightness(display_duty(60));
@@ -125,6 +130,22 @@ public:
     }
 
     void set_brightness(std::uint8_t percent) { panel_.setBrightness(display_duty(percent)); }
+
+    void write_frame_dma(const std::uint8_t* pixels, std::size_t size) {
+        ESP_ERROR_CHECK(esp_cache_msync(const_cast<std::uint8_t*>(pixels), size,
+                                        ESP_CACHE_MSYNC_FLAG_DIR_C2M |
+                                            ESP_CACHE_MSYNC_FLAG_UNALIGNED));
+        startWrite();
+        panel_.setWindow(0, 0, width() - 1, height() - 1);
+        panel_.start_qspi();
+        while (size) {
+            const auto bytes = std::min(size, kDmaChunkBytes);
+            bus_.writeBytes(pixels, bytes, true, true);
+            pixels += bytes;
+            size -= bytes;
+        }
+        endWrite();
+    }
 
 private:
     lgfx::Bus_SPI bus_;
@@ -239,14 +260,19 @@ TouchPoint read_touch() {
     };
 }
 
-void lvgl_flush(lv_display_t* lv_display, const lv_area_t* area, std::uint8_t* pixels) {
+void IRAM_ATTR display_te_isr(void*) {
+    BaseType_t task_woken = pdFALSE;
+    xSemaphoreGiveFromISR(display_te, &task_woken);
+    if (task_woken == pdTRUE) portYIELD_FROM_ISR();
+}
+
+void lvgl_flush(lv_display_t* lv_display, const lv_area_t*, std::uint8_t* pixels) {
     auto* gfx = static_cast<StopWatchDisplay*>(lv_display_get_driver_data(lv_display));
-    const std::uint32_t width = area->x2 - area->x1 + 1;
-    const std::uint32_t height = area->y2 - area->y1 + 1;
-    gfx->startWrite();
-    gfx->setAddrWindow(area->x1, area->y1, width, height);
-    gfx->writePixels(reinterpret_cast<lgfx::rgb565_t*>(pixels), width * height);
-    gfx->endWrite();
+    xSemaphoreTake(display_te, 0);
+    if (xSemaphoreTake(display_te, pdMS_TO_TICKS(kTeWaitMs)) != pdTRUE) {
+        ESP_LOGW(kTag, "display TE timeout");
+    }
+    gfx->write_frame_dma(pixels, gfx->width() * gfx->height() * sizeof(lv_color_t));
     lv_display_flush_ready(lv_display);
 }
 
@@ -283,12 +309,11 @@ bool init_display_and_lvgl() {
     lv_display_set_color_format(lv_display, LV_COLOR_FORMAT_RGB565);
     lv_display_set_driver_data(lv_display, display.get());
     lv_display_set_flush_cb(lv_display, lvgl_flush);
-    constexpr std::size_t lines = 80;
-    const std::size_t buffer_size = display->width() * lines * sizeof(lv_color_t);
-    auto* first = heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    auto* second = heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!first || !second) return false;
-    lv_display_set_buffers(lv_display, first, second, buffer_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    const std::size_t buffer_size = display->width() * display->height() * sizeof(lv_color_t);
+    constexpr auto buffer_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+    auto* buffer = heap_caps_malloc(buffer_size, buffer_caps);
+    if (!buffer) return false;
+    lv_display_set_buffers(lv_display, buffer, nullptr, buffer_size, LV_DISPLAY_RENDER_MODE_FULL);
 
     auto* input = lv_indev_create();
     if (!input) return false;
@@ -297,7 +322,12 @@ bool init_display_and_lvgl() {
     lv_indev_set_display(input, lv_display);
 
     lvgl_mutex = xSemaphoreCreateMutex();
-    if (!lvgl_mutex) return false;
+    display_te = xSemaphoreCreateBinary();
+    if (!lvgl_mutex || !display_te) return false;
+    const esp_err_t isr_result = gpio_install_isr_service(0);
+    if ((isr_result != ESP_OK && isr_result != ESP_ERR_INVALID_STATE) ||
+        gpio_set_intr_type(kDisplayTe, GPIO_INTR_POSEDGE) != ESP_OK ||
+        gpio_isr_handler_add(kDisplayTe, display_te_isr, nullptr) != ESP_OK) return false;
     esp_timer_create_args_t timer_config{};
     timer_config.callback = lvgl_tick;
     timer_config.name = "lvgl_tick";
