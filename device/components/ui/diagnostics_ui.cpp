@@ -250,6 +250,7 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
             lv_obj_set_size(image, 520, 520);
             lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
             lv_obj_set_style_blur_radius(image, 24, 0);
+            lv_obj_set_style_blur_quality(image, LV_BLUR_QUALITY_PRECISION, 0);
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
             lv_obj_set_pos(image, kSafeX, kSafeX);
@@ -581,6 +582,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
             lv_obj_set_size(image, 520, 520);
             lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
             lv_obj_set_style_blur_radius(image, 24, 0);
+            lv_obj_set_style_blur_quality(image, LV_BLUR_QUALITY_PRECISION, 0);
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
             lv_obj_set_pos(image, kSafeX, kSafeX);
