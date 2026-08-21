@@ -13,6 +13,7 @@
 #include "webp/demux.h"
 
 extern "C" const lv_font_t bajji_font_16;
+extern "C" const lv_font_t bajji_font_24;
 
 namespace bajji {
 namespace {
@@ -63,6 +64,7 @@ constexpr Choice kAcgTypes[] = {{"pc", "电脑（pc）"}, {"mb", "手机（mb）
 constexpr Choice kFurryTypes[] = {
     {"z4k", "竖屏 4K"}, {"szs8k", "竖屏 8K"}, {"s4k", "横屏 4K"}, {"4k", "通用 4K"},
 };
+constexpr std::uint8_t kBrightnessLevels[] = {20, 40, 60, 80, 100};
 
 lv_color_t color(std::uint32_t value) { return lv_color_hex(value); }
 std::uint32_t now_ms() { return lv_tick_get(); }
@@ -116,6 +118,10 @@ lv_obj_t* title(lv_obj_t* parent, const char* text, int y) {
     return value;
 }
 
+lv_obj_t* settings_title(lv_obj_t* parent, const char* text, int y) {
+    return label(parent, text, kSafeX, y, kSafeWidth, &bajji_font_24, kPrimary);
+}
+
 lv_obj_t* spinner(lv_obj_t* parent, int x, int y, int size) {
     auto* value = lv_spinner_create(parent);
     lv_obj_set_pos(value, x, y);
@@ -132,17 +138,32 @@ lv_obj_t* spinner(lv_obj_t* parent, int x, int y, int size) {
 
 lv_obj_t* setting_row(lv_obj_t* parent, int y, const char* name, lv_obj_t** value_out,
                       lv_event_cb_t callback, void* context) {
-    auto* row = object(parent, kSafeX, y, kSafeWidth, 72, kSurface, 16);
+    auto* row = object(parent, kSafeX, y, kSafeWidth, 60, kSurface, 16);
     lv_obj_set_style_border_width(row, 1, 0);
     lv_obj_set_style_border_color(row, color(kOverlay), 0);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, context);
-    label(row, name, 20, 10, 240, kBodyFont, kSecondary,
+    label(row, name, 20, 7, 240, kBodyFont, kSecondary,
           LV_TEXT_ALIGN_LEFT);
-    *value_out = label(row, "", 20, 38, 260, kBodyFont, kPrimary,
+    *value_out = label(row, "", 20, 31, 260, kBodyFont, kPrimary,
                        LV_TEXT_ALIGN_LEFT);
-    label(row, "›", 282, 17, 28, &lv_font_montserrat_28, kAccent);
+    label(row, "›", 282, 11, 28, &lv_font_montserrat_28, kAccent);
     return row;
+}
+
+lv_obj_t* back_control(lv_obj_t* parent, lv_event_cb_t callback, void* context) {
+    auto* control = object(parent, 36, 30, 132, 56, kButtonA, 28);
+    lv_obj_set_style_border_width(control, 1, 0);
+    lv_obj_set_style_border_color(control, color(kPrimary), 0);
+    lv_obj_set_style_border_opa(control, LV_OPA_30, 0);
+    lv_obj_set_style_shadow_color(control, color(kButtonA), 0);
+    lv_obj_set_style_shadow_width(control, 16, 0);
+    lv_obj_set_style_shadow_spread(control, 2, 0);
+    lv_obj_set_style_shadow_opa(control, LV_OPA_50, 0);
+    lv_obj_add_flag(control, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(control, callback, LV_EVENT_CLICKED, context);
+    label(control, LV_SYMBOL_LEFT, 76, 14, 36, &lv_font_montserrat_28, kBase);
+    return control;
 }
 
 const Choice* choices_for(const char* category, std::size_t* count) {
@@ -339,6 +360,7 @@ void ProductUI::create(const ble_link_status_t& link, const WallpaperStatus& wal
     lv_obj_set_style_text_color(screen, color(kPrimary), 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     latest_wallpaper_ = wallpaper;
+    latest_link_ = link;
     draft_ = wallpaper.settings;
     display_mode_ = wallpaper.settings.display_mode;
     wallpaper_revision_ = wallpaper.revision;
@@ -366,6 +388,8 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     loading_state_ = nullptr;
     category_value_ = nullptr;
     type_value_ = nullptr;
+    pairing_value_ = nullptr;
+    brightness_value_ = nullptr;
     type_row_ = nullptr;
     controls_visible_ = false;
     controls_hiding_ = false;
@@ -444,25 +468,76 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                 std::snprintf(draft_.category, sizeof(draft_.category), "bq");
                 std::snprintf(draft_.type, sizeof(draft_.type), "eciyuan");
             }
-            status_pill(root_, "已配对", kSuccess, 32);
-            title(root_, "图片设置", 100);
-            setting_row(root_, 144, "分类", &category_value_,
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "设备设置", 40);
+            setting_row(root_, 94, "分类", &category_value_,
                         category_row_clicked, this);
-            type_row_ = setting_row(root_, 228, "类型", &type_value_,
+            type_row_ = setting_row(root_, 162, "类型", &type_value_,
                                     type_row_clicked, this);
-            auto* save = object(root_, kSafeX, 328, kSafeWidth, 56, kAccent, 28);
+            setting_row(root_, 230, "配对设置", &pairing_value_,
+                        pairing_row_clicked, this);
+            setting_row(root_, 298, "屏幕亮度", &brightness_value_,
+                        brightness_row_clicked, this);
+            auto* save = object(root_, 99, 374, 268, 52, kAccent, 26);
             lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(save, save_clicked, LV_EVENT_CLICKED, this);
-            label(save, "保存并加载", 0, 16, kSafeWidth,
+            label(save, "保存并加载", 0, 14, 268,
                   kBodyFont, kBase);
-            label(root_, "参数保存在设备本地", kSafeX, 399, kSafeWidth,
+            label(root_, "A 返回图片 · 本地保存", kSafeX, 438, kSafeWidth,
                   kBodyFont, kSuccess);
             update_settings_labels();
             break;
         }
+        case Page::pairing_settings: {
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "配对设置", 40);
+            status_pill(root_, latest_link_.has_bond ? "已配对" : "未配对",
+                        latest_link_.has_bond ? kSuccess : kWarning, 112);
+            label(root_, "解除后需在手机端\n重新发起配对请求", 93, 190, 280,
+                  kBodyFont, kSecondary);
+            auto* clear = object(root_, kSafeX, 280, kSafeWidth, 56, kSurface, 28);
+            lv_obj_set_style_border_width(clear, 1, 0);
+            lv_obj_set_style_border_color(clear, color(kError), 0);
+            lv_obj_add_flag(clear, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(clear, clear_pairing_clicked, LV_EVENT_CLICKED, this);
+            label(clear, "解除配对", 0, 16, kSafeWidth, kBodyFont, kError);
+            label(root_, "A 返回设备设置", kSafeX, 376, kSafeWidth,
+                  kBodyFont, kSecondary);
+            break;
+        }
+        case Page::brightness: {
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "屏幕亮度", 40);
+            auto* list = object(root_, kSafeX, 102, kSafeWidth, 280, kBase, 0);
+            lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_style_pad_row(list, 8, 0);
+            const auto current = BoardHal::instance().brightness();
+            for (const auto level : kBrightnessLevels) {
+                auto* row = object(list, 0, 0, kSafeWidth, 48, kSurface, 16);
+                lv_obj_set_style_min_height(row, 48, 0);
+                lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+                if (level == current) {
+                    lv_obj_set_style_border_width(row, 2, 0);
+                    lv_obj_set_style_border_color(row, color(kAccent), 0);
+                }
+                char text[8];
+                std::snprintf(text, sizeof(text), "%u%%", level);
+                label(row, text, 16, 14, 260, kBodyFont, kPrimary,
+                      LV_TEXT_ALIGN_LEFT);
+                if (level == current) {
+                    label(row, LV_SYMBOL_OK, 280, 14, 32,
+                          &lv_font_montserrat_18, kAccent);
+                }
+                lv_obj_add_event_cb(row, brightness_choice_clicked,
+                                    LV_EVENT_CLICKED, this);
+            }
+            label(root_, "A 返回设备设置", kSafeX, 397, kSafeWidth,
+                  kBodyFont, kSecondary);
+            break;
+        }
         case Page::category:
         case Page::type: {
-            title(root_, next == Page::category ? "选择分类" : "选择类型", 56);
+            settings_title(root_, next == Page::category ? "选择分类" : "选择类型", 56);
             auto* list = object(root_, kSafeX, 102, kSafeWidth, 280, kBase, 0);
             lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -768,6 +843,12 @@ void ProductUI::hide_hold() {
 }
 
 void ProductUI::update_settings_labels() {
+    if (pairing_value_) {
+        lv_label_set_text(pairing_value_, latest_link_.has_bond ? "已配对" : "未配对");
+    }
+    if (brightness_value_) {
+        lv_label_set_text_fmt(brightness_value_, "%u%%", BoardHal::instance().brightness());
+    }
     if (!category_value_ || !type_value_) return;
     lv_label_set_text(category_value_, choice_label(kCategories,
         sizeof(kCategories) / sizeof(kCategories[0]), draft_.category, "全部"));
@@ -786,6 +867,17 @@ void ProductUI::update_settings_labels() {
     }
 }
 
+void ProductUI::show_settings_with_draft() {
+    const WallpaperSettings saved = draft_;
+    show(Page::settings, latest_wallpaper_);
+    draft_ = saved;
+    update_settings_labels();
+}
+
+void ProductUI::return_to_image() {
+    if (latest_wallpaper_.has_cache) show(Page::image, latest_wallpaper_);
+}
+
 void ProductUI::select_category(std::uint32_t index) {
     if (index >= sizeof(kCategories) / sizeof(kCategories[0])) return;
     char previous_type[sizeof(draft_.type)];
@@ -799,25 +891,28 @@ void ProductUI::select_category(std::uint32_t index) {
     } else {
         std::snprintf(draft_.type, sizeof(draft_.type), "%s", previous_type);
     }
-    char selected_type[sizeof(draft_.type)];
-    std::snprintf(selected_type, sizeof(selected_type), "%s", draft_.type);
-    show(Page::settings, latest_wallpaper_);
-    draft_.configured = latest_wallpaper_.settings.configured;
-    std::snprintf(draft_.category, sizeof(draft_.category), "%s", kCategories[index].value);
-    std::snprintf(draft_.type, sizeof(draft_.type), "%s", selected_type);
-    update_settings_labels();
+    show_settings_with_draft();
 }
 
 void ProductUI::select_type(std::uint32_t index) {
     std::size_t count = 0;
     const Choice* choices = choices_for(draft_.category, &count);
     if (!choices || index >= count) return;
-    char category[sizeof(draft_.category)];
-    std::snprintf(category, sizeof(category), "%s", draft_.category);
-    show(Page::settings, latest_wallpaper_);
-    std::snprintf(draft_.category, sizeof(draft_.category), "%s", category);
     std::snprintf(draft_.type, sizeof(draft_.type), "%s", choices[index].value);
-    update_settings_labels();
+    show_settings_with_draft();
+}
+
+void ProductUI::select_brightness(std::uint32_t index) {
+    if (index >= sizeof(kBrightnessLevels) / sizeof(kBrightnessLevels[0])) return;
+    BoardHal::instance().set_brightness(kBrightnessLevels[index]);
+    show_settings_with_draft();
+}
+
+void ProductUI::clear_pairing() {
+    if (ble_link_clear_bond() != ESP_OK) return;
+    latest_link_.has_bond = false;
+    latest_link_.bonded = false;
+    show(Page::unpaired, latest_wallpaper_);
 }
 
 void ProductUI::save_settings() {
@@ -855,6 +950,7 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
 void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
                         const WallpaperStatus& wallpaper, const ButtonEvents& buttons) {
     latest_wallpaper_ = wallpaper;
+    latest_link_ = link;
     const std::uint32_t now = now_ms();
 
     if (link.passkey && page_ != Page::pairing_code) show(Page::pairing_code, wallpaper, link.passkey);
@@ -877,6 +973,18 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
         if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
         else show(Page::loading, wallpaper);
+    }
+
+    if (buttons.a_pressed) {
+        if (page_ == Page::settings) {
+            return_to_image();
+            return;
+        }
+        if (page_ == Page::category || page_ == Page::type ||
+            page_ == Page::pairing_settings || page_ == Page::brightness) {
+            show_settings_with_draft();
+            return;
+        }
     }
 
     if (page_ == Page::loading) {
@@ -958,6 +1066,22 @@ void ProductUI::type_row_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
     self->show(Page::type, self->latest_wallpaper_);
 }
+void ProductUI::pairing_row_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->show(Page::pairing_settings, self->latest_wallpaper_);
+}
+void ProductUI::brightness_row_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->show(Page::brightness, self->latest_wallpaper_);
+}
+void ProductUI::back_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    if (self->page_ == Page::settings) self->return_to_image();
+    else self->show_settings_with_draft();
+}
+void ProductUI::clear_pairing_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->clear_pairing();
+}
 void ProductUI::save_clicked(lv_event_t* event) {
     static_cast<ProductUI*>(lv_event_get_user_data(event))->save_settings();
 }
@@ -971,5 +1095,9 @@ void ProductUI::category_choice_clicked(lv_event_t* event) {
 void ProductUI::type_choice_clicked(lv_event_t* event) {
     const auto index = static_cast<std::uint32_t>(lv_obj_get_index(lv_event_get_target_obj(event)));
     static_cast<ProductUI*>(lv_event_get_user_data(event))->select_type(index);
+}
+void ProductUI::brightness_choice_clicked(lv_event_t* event) {
+    const auto index = static_cast<std::uint32_t>(lv_obj_get_index(lv_event_get_target_obj(event)));
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->select_brightness(index);
 }
 }  // namespace bajji
