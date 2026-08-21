@@ -1,0 +1,54 @@
+diff --git a/include/bmi270_bmm150.h b/include/bmi270_bmm150.h
+index f39ca8e..6994252 100644
+--- a/include/bmi270_bmm150.h
++++ b/include/bmi270_bmm150.h
+@@ -38,6 +38,7 @@ typedef struct {
+ struct dev_info {
+     i2c_bus_handle_t i2c_handle; /*!< I2C bus handle */
+     uint8_t dev_addr;            /*!< I2C device address */
++    i2c_bus_device_handle_t i2c_device; /*!< Cached device handle, created on first access */
+ };
+ 
+ /**
+diff --git a/src/bmi270_bmm150.c b/src/bmi270_bmm150.c
+index f22d40e..9a97227 100644
+--- a/src/bmi270_bmm150.c
++++ b/src/bmi270_bmm150.c
+@@ -90,9 +90,17 @@ static int8_t bmi2_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, v
+ 
+     struct dev_info* dev_info = (struct dev_info*)intf_ptr;
+ 
+-    i2c_bus_device_handle_t i2c_device = i2c_bus_device_create(dev_info->i2c_handle, dev_info->dev_addr, 0);
+-    esp_err_t ret = i2c_bus_read_bytes(i2c_device, reg_addr, len, reg_data);
+-    i2c_bus_device_delete(&i2c_device);
++    /* Keep the device handle for the lifetime of the sensor. Creating and deleting it per
++     * register access races with any other task using the same bus: i2c_master_bus_rm_device()
++     * refuses to run while a transfer is in flight ("Wrong I2C status, cannot delete device"),
++     * and a refused delete leaves the device on the bus list, leaking one entry each time. */
++    if (dev_info->i2c_device == NULL) {
++        dev_info->i2c_device = i2c_bus_device_create(dev_info->i2c_handle, dev_info->dev_addr, 0);
++        if (dev_info->i2c_device == NULL) {
++            return -1;
++        }
++    }
++    esp_err_t ret = i2c_bus_read_bytes(dev_info->i2c_device, reg_addr, len, reg_data);
+     if (ret != ESP_OK) {
+         ESP_LOGE(TAG, "i2c_bus_read_bytes failed: %d", ret);
+         return -1;
+@@ -108,9 +116,13 @@ int8_t bmi2_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len, v
+ 
+     struct dev_info* dev_info = (struct dev_info*)intf_ptr;
+ 
+-    i2c_bus_device_handle_t i2c_device = i2c_bus_device_create(dev_info->i2c_handle, dev_info->dev_addr, 0);
+-    esp_err_t ret = i2c_bus_write_bytes(i2c_device, reg_addr, len, reg_data);
+-    i2c_bus_device_delete(&i2c_device);
++    if (dev_info->i2c_device == NULL) {
++        dev_info->i2c_device = i2c_bus_device_create(dev_info->i2c_handle, dev_info->dev_addr, 0);
++        if (dev_info->i2c_device == NULL) {
++            return -1;
++        }
++    }
++    esp_err_t ret = i2c_bus_write_bytes(dev_info->i2c_device, reg_addr, len, reg_data);
+     if (ret != ESP_OK) {
+         ESP_LOGE(TAG, "reg_addr: 0x%02X", reg_addr);
+         ESP_LOGE(TAG, "i2c_bus_write_bytes failed: %d", ret);
