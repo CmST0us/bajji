@@ -17,10 +17,24 @@ struct ButtonEvents {
 class ButtonState {
 public:
     explicit ButtonState(std::uint32_t chord_window_ms = 120,
-                         std::uint32_t chord_hold_ms = 1000)
-        : chord_window_ms_(chord_window_ms), chord_hold_ms_(chord_hold_ms) {}
+                         std::uint32_t chord_hold_ms = 1000,
+                         std::uint32_t debounce_ms = 20)
+        : chord_window_ms_(chord_window_ms), chord_hold_ms_(chord_hold_ms),
+          debounce_ms_(debounce_ms) {}
 
     void update(bool a_down, bool b_down, std::uint64_t now_ms) {
+        const auto debounce = [this, now_ms](bool sample, bool& previous_sample,
+                                              std::uint64_t& sample_since_ms,
+                                              bool stable) {
+            if (sample != previous_sample) {
+                previous_sample = sample;
+                sample_since_ms = now_ms;
+            }
+            return sample != stable && now_ms - sample_since_ms >= debounce_ms_ ? sample : stable;
+        };
+        a_down = debounce(a_down, a_sample_, a_sample_since_ms_, a_down_);
+        b_down = debounce(b_down, b_sample_, b_sample_since_ms_, b_down_);
+
         const bool a_rising = a_down && !a_down_;
         const bool b_rising = b_down && !b_down_;
         const bool a_falling = !a_down && a_down_;
@@ -106,10 +120,15 @@ public:
 private:
     std::uint32_t chord_window_ms_;
     std::uint32_t chord_hold_ms_;
+    std::uint32_t debounce_ms_;
     std::uint64_t first_pressed_at_ms_{};
     std::uint64_t chord_started_at_ms_{};
+    std::uint64_t a_sample_since_ms_{};
+    std::uint64_t b_sample_since_ms_{};
     bool a_down_{};
     bool b_down_{};
+    bool a_sample_{};
+    bool b_sample_{};
     bool a_pending_{};
     bool b_pending_{};
     bool chord_active_{};

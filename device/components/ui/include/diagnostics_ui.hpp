@@ -67,6 +67,7 @@ private:
     _lv_obj_t* root_{};
     _lv_obj_t* controls_{};
     _lv_obj_t* refresh_overlay_{};
+    _lv_obj_t* refresh_spinner_{};
     _lv_obj_t* cache_error_{};
     _lv_obj_t* cache_error_text_{};
     _lv_obj_t* hold_overlay_{};

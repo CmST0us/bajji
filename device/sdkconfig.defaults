@@ -9,6 +9,9 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_FREERTOS_HZ=1000
+# This firmware spends most of its time in software rendering, image decode, and packet
+# copies. ESP-IDF defaults to its debug-oriented optimization unless told otherwise.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_COMPILER_CXX_EXCEPTIONS=n
 CONFIG_COMPILER_CXX_RTTI=n
 CONFIG_LV_COLOR_DEPTH_16=y

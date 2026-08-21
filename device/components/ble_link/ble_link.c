@@ -26,7 +26,8 @@
 
 void ble_store_config_init(void);
 
-enum { kQueueCapacity = 32, kReceiveBufferCount = 8 };
+// sdkconfig.defaults uses one CoC RX SDU slot; two blocks cover one MTU plus mbuf overhead.
+enum { kQueueCapacity = 32, kReceiveBufferCount = 2 };
 static const char* tag = "ble_link";
 static const ble_uuid128_t service_uuid = BLE_UUID128_INIT(
     0x21, 0xb3, 0x20, 0x2f, 0x9e, 0x3a, 0x54, 0xa8,
@@ -323,9 +324,6 @@ static void schedule_tx(void) {
 
 esp_err_t ble_link_send(const bridge_frame_t* frame) {
     if (!frame) return ESP_ERR_INVALID_ARG;
-    uint8_t encoded[BRIDGE_MAX_FRAME_SIZE];
-    const size_t length = bridge_encode(frame, encoded, sizeof(encoded));
-    if (!length) return ESP_ERR_INVALID_ARG;
 
     portENTER_CRITICAL(&status_lock);
     if (!status.coc_connected) {
@@ -341,7 +339,11 @@ esp_err_t ble_link_send(const bridge_frame_t* frame) {
         return ESP_ERR_NO_MEM;
     }
     queued_frame_t* queued = &tx_queue[(tx_head + tx_count) % kQueueCapacity];
-    memcpy(queued->bytes, encoded, length);
+    const size_t length = bridge_encode(frame, queued->bytes, sizeof(queued->bytes));
+    if (!length) {
+        portEXIT_CRITICAL(&status_lock);
+        return ESP_ERR_INVALID_ARG;
+    }
     queued->length = (uint16_t)length;
     queued->offset = 0;
     tx_count++;

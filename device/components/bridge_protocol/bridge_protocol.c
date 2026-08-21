@@ -18,7 +18,10 @@ static int payload_length_valid(uint8_t type, uint16_t length) {
 }
 
 void bridge_parser_reset(bridge_parser_t* parser) {
-    if (parser) memset(parser, 0, sizeof(*parser));
+    if (!parser) return;
+    // accept_header replaces all metadata, and feed overwrites payload_len bytes before READY.
+    parser->header_used = 0;
+    parser->payload_used = 0;
 }
 
 static bridge_parse_result_t accept_header(bridge_parser_t* parser) {
@@ -61,7 +64,10 @@ bridge_parse_result_t bridge_parser_feed(bridge_parser_t* parser, const uint8_t*
 
         if (parser->header_used == BRIDGE_HEADER_SIZE &&
             parser->payload_used == parser->frame.payload_len) {
-            *out = parser->frame;
+            out->type = parser->frame.type;
+            out->sequence = parser->frame.sequence;
+            out->payload_len = parser->frame.payload_len;
+            memcpy(out->payload, parser->frame.payload, parser->frame.payload_len);
             bridge_parser_reset(parser);
             return BRIDGE_FRAME_READY;
         }

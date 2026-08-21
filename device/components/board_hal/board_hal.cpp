@@ -201,7 +201,6 @@ bool init_pmic() {
         return false;
     }
     pmic->setI2cSleepTime(0);
-    pmic->setI2cSleepTime(0);
     pmic->btnSetConfig(M5PM1_BTN_TYPE_CLICK, M5PM1_BTN_CLICK_DELAY_1000MS);
     pmic->wdtSet(0);
     pmic->ldoSetPowerHold(true);
@@ -287,7 +286,6 @@ bool init_ioe() {
         ioe.reset();
         return false;
     }
-    ioe->setI2cSleepTime(0);
     ioe->setI2cSleepTime(0);
     // Hold the OLED chip select high before the bus exists, so bus glitches during
     // the reset pulse are not latched as commands (M5GFX.cpp:1900-1902).
@@ -378,11 +376,15 @@ void lvgl_tick(void*) { lv_tick_inc(10); }
 
 void lvgl_task(void*) {
     while (true) {
+        std::uint32_t delay_ms = LV_DEF_REFR_PERIOD;
         if (xSemaphoreTake(lvgl_mutex, portMAX_DELAY) == pdTRUE) {
-            lv_timer_handler();
+            // lv_timer_handler() already computes when the next display, input, or animation
+            // timer is due (lv_timer.c:112-123). Sleeping for that interval avoids taking the
+            // mutex at 100 Hz on static screens without delaying active animations or touch.
+            delay_ms = lv_timer_handler();
             xSemaphoreGive(lvgl_mutex);
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(std::clamp<std::uint32_t>(delay_ms, 1, LV_DEF_REFR_PERIOD)));
     }
 }
 
@@ -578,8 +580,6 @@ void BoardHal::poll() {
     buttons.update(a, b, static_cast<std::uint64_t>(now / 1000));
 
     if (motor_stop_us && now >= motor_stop_us) stop_vibration();
-    if (status_.touch == Health::ok) status_.touch_point = read_touch();
-
     if (now - battery_poll_us >= 1000000) {
         battery_poll_us = now;
         std::uint16_t millivolts = 0;
@@ -616,7 +616,9 @@ void BoardHal::poll() {
 }
 
 void BoardHal::set_brightness(std::uint8_t percent) {
-    status_.brightness = std::min<std::uint8_t>(percent, 100);
+    percent = std::min<std::uint8_t>(percent, 100);
+    if (status_.brightness == percent) return;
+    status_.brightness = percent;
     if (display) display->set_brightness(status_.brightness);
     persist_brightness(status_.brightness);
 }

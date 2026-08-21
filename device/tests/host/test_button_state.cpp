@@ -4,7 +4,8 @@
 #include <cassert>
 
 int main() {
-    bajji::ButtonState button;
+    // Keep the gesture cases focused on chord timing; debounce has its own check below.
+    bajji::ButtonState button(120, 1000, 0);
 
     button.update(true, false, 100);
     button.update(false, false, 180);
@@ -50,5 +51,20 @@ int main() {
     assert(events.a_pressed && !events.chord_started);
     button.update(false, false, 4300);
     assert(button.take_events().b_pressed);
+
+    bajji::ButtonState debounced;
+    debounced.update(true, false, 5000);
+    debounced.update(false, false, 5005);
+    debounced.update(true, false, 5010);
+    debounced.update(true, false, 5029);
+    assert(!debounced.take_events().a_pressed);
+    debounced.update(true, false, 5030);  // stable press edge
+    debounced.update(false, false, 5040);
+    debounced.update(true, false, 5045);
+    debounced.update(false, false, 5050);
+    debounced.update(false, false, 5069);
+    assert(!debounced.take_events().a_pressed);
+    debounced.update(false, false, 5070);  // stable release edge
+    assert(debounced.take_events().a_pressed);
     return 0;
 }

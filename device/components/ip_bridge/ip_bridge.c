@@ -6,7 +6,6 @@
 
 #include "ble_link.h"
 #include "esp_log.h"
-#include "esp_log_buffer.h"
 #include "esp_netif.h"
 #include "freertos/FreeRTOS.h"
 #include "ipv4_packet.h"
@@ -23,43 +22,8 @@ static struct netif bridge_netif;
 static ip_bridge_status_t status;
 static portMUX_TYPE status_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t tx_sequence = 1;
-static uint32_t request_dumped;
-static uint32_t response_dumped;
 // lwIP invokes netif output on its single tcpip task; keeping this off its 3 KiB stack avoids overflow.
 static bridge_frame_t tx_frame;
-
-static void log_ipv4_packet(const char* direction, uint16_t sequence, const uint8_t* packet,
-                            size_t length, bool dump_payload, uint32_t* dumped, uint32_t limit) {
-    if (*dumped >= limit) return;
-    (*dumped)++;
-    const size_t header_length = (size_t)(packet[0] & 0x0fU) * 4U;
-    const uint8_t protocol = packet[9];
-    const bool has_ports = (protocol == 6U || protocol == 17U) && length >= header_length + 4U;
-    const uint16_t source_port = has_ports
-                                     ? (uint16_t)((uint16_t)packet[header_length] << 8U) |
-                                           packet[header_length + 1U]
-                                     : 0;
-    const uint16_t destination_port = has_ports
-                                          ? (uint16_t)((uint16_t)packet[header_length + 2U] << 8U) |
-                                                packet[header_length + 3U]
-                                          : 0;
-    const uint8_t tcp_flags = protocol == 6U && length >= header_length + 14U
-                                  ? packet[header_length + 13U]
-                                  : 0;
-    ESP_LOGI(tag,
-             "%s packet %lu/%lu seq=%u len=%u %u.%u.%u.%u:%u -> "
-             "%u.%u.%u.%u:%u proto=%u tcp_flags=0x%02x",
-             direction, (unsigned long)*dumped, (unsigned long)limit, (unsigned)sequence,
-             (unsigned)length, (unsigned)packet[12], (unsigned)packet[13], (unsigned)packet[14],
-             (unsigned)packet[15], (unsigned)source_port, (unsigned)packet[16],
-             (unsigned)packet[17], (unsigned)packet[18], (unsigned)packet[19],
-             (unsigned)destination_port, (unsigned)protocol, (unsigned)tcp_flags);
-    if (dump_payload) {
-        const size_t dump_length = length < 96U ? length : 96U;
-        ESP_LOG_BUFFER_HEX_LEVEL(tag, packet, dump_length, ESP_LOG_INFO);
-    }
-    if (*dumped == limit) ESP_LOGI(tag, "%s packet dump limit reached", direction);
-}
 
 static err_t bridge_output(struct netif* netif, struct pbuf* packet,
                            const ip4_addr_t* destination) {
@@ -80,9 +44,6 @@ static err_t bridge_output(struct netif* netif, struct pbuf* packet,
         portEXIT_CRITICAL(&status_lock);
         return ERR_VAL;
     }
-    log_ipv4_packet("OUT", tx_frame.sequence, tx_frame.payload, tx_frame.payload_len, true,
-                    &request_dumped, 24);
-
     const esp_err_t result = ble_link_send(&tx_frame);
     portENTER_CRITICAL(&status_lock);
     if (result == ESP_OK) {
@@ -142,7 +103,6 @@ void ip_bridge_set_link(bool up) {
     portENTER_CRITICAL(&status_lock);
     const bool started = status.started;
     const bool changed = status.link_up != up;
-    status.link_up = started && up;
     portEXIT_CRITICAL(&status_lock);
     if (!started || !changed) return;
 
@@ -154,6 +114,9 @@ void ip_bridge_set_link(bool up) {
         portEXIT_CRITICAL(&status_lock);
         ESP_LOGE(tag, "could not set link %s: %d", up ? "up" : "down", result);
     } else {
+        portENTER_CRITICAL(&status_lock);
+        status.link_up = up;
+        portEXIT_CRITICAL(&status_lock);
         ESP_LOGI(tag, "IPv4 link %s", up ? "up" : "down");
     }
 }
@@ -166,8 +129,6 @@ static void receive_ipv4(const bridge_frame_t* frame) {
         portEXIT_CRITICAL(&status_lock);
         return;
     }
-    log_ipv4_packet("IN", frame->sequence, frame->payload, frame->payload_len, false,
-                    &response_dumped, 12);
     struct pbuf* packet = pbuf_alloc(PBUF_RAW, frame->payload_len, PBUF_POOL);
     if (!packet || pbuf_take(packet, frame->payload, frame->payload_len) != ERR_OK) {
         if (packet) pbuf_free(packet);

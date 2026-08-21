@@ -540,7 +540,7 @@ void worker(void*) {
     while (true) {
         QueuedCommand command;
         const bool received =
-            xQueueReceive(command_queue, &command, pdMS_TO_TICKS(1000)) == pdTRUE;
+            xQueueReceive(command_queue, &command, portMAX_DELAY) == pdTRUE;
         if (cancel_requested.exchange(false)) {
             pending_refresh = false;
             finish_cancelled();
@@ -609,7 +609,10 @@ esp_err_t wallpaper_start() {
     copy_text(status.state, sizeof(status.state), "正在启动…");
     const esp_err_t settings_result = load_settings();
     const esp_err_t mount_result = mount_cache();
-    if (xTaskCreate(worker, "wallpaper", 16384, nullptr, 4, nullptr) != pdPASS) {
+    // validate_image_file() reads and scans up to kImageLimit after each download. Keep
+    // that background work below the LVGL task (board_hal.cpp:427) and level with app_main
+    // (ESP_TASK_MAIN_PRIO in esp_task.h:56), so it cannot monopolise UI or button handling.
+    if (xTaskCreate(worker, "wallpaper", 16384, nullptr, 1, nullptr) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     started = true;
@@ -620,7 +623,8 @@ esp_err_t wallpaper_start() {
 void wallpaper_set_online(bool online_and_time_valid) {
     bool changed = false;
     update_status([&](WallpaperStatus& value) {
-        changed = value.online != online_and_time_valid;
+        if (value.online == online_and_time_valid) return;
+        changed = true;
         value.online = online_and_time_valid;
         if (!online_and_time_valid) value.internet_verified = false;
         if (!online_and_time_valid && !value.busy) {
@@ -639,6 +643,9 @@ esp_err_t wallpaper_cancel_request() {
         value.busy = false;
         copy_text(value.state, sizeof(value.state), "正在取消…");
     });
+    // The worker normally sleeps indefinitely while a refresh waits for the phone.
+    // Wake it so cancellation is observed even when there is no active HTTP client.
+    enqueue({.type = Command::wake});
     if (!client_mutex || xSemaphoreTake(client_mutex, 0) != pdTRUE) return ESP_OK;
     const esp_err_t result = active_client ? esp_http_client_cancel_request(active_client) : ESP_OK;
     xSemaphoreGive(client_mutex);

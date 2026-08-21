@@ -36,6 +36,34 @@ static void coalesced_frames(void) {
     assert(second == sizeof(ping));
 }
 
+static void mixed_maximum_and_control_frames(void) {
+    bridge_frame_t sent = {
+        .type = BRIDGE_TYPE_IPV4,
+        .sequence = 41,
+        .payload_len = BRIDGE_MAX_PAYLOAD,
+    };
+    for (size_t index = 0; index < sizeof(sent.payload); ++index) {
+        sent.payload[index] = (uint8_t)index;
+    }
+    uint8_t encoded[BRIDGE_MAX_FRAME_SIZE];
+    assert(bridge_encode(&sent, encoded, sizeof(encoded)) == sizeof(encoded));
+
+    bridge_parser_t parser = {0};
+    bridge_frame_t received = {0};
+    size_t consumed = 0;
+    assert(bridge_parser_feed(&parser, encoded, sizeof(encoded), &consumed, &received) ==
+           BRIDGE_FRAME_READY);
+    assert(received.type == BRIDGE_TYPE_IPV4);
+    assert(received.payload_len == BRIDGE_MAX_PAYLOAD);
+    assert(memcmp(received.payload, sent.payload, sizeof(sent.payload)) == 0);
+
+    assert(bridge_parser_feed(&parser, ping, sizeof(ping), &consumed, &received) ==
+           BRIDGE_FRAME_READY);
+    assert(received.type == BRIDGE_TYPE_PING);
+    assert(received.payload_len == 8);
+    assert(memcmp(received.payload, ping + BRIDGE_HEADER_SIZE, 8) == 0);
+}
+
 static void resynchronizes_magic(void) {
     const uint8_t garbage[] = {0, 0xba, 0xba};
     bridge_parser_t parser = {0};
@@ -102,6 +130,7 @@ static void time_sync_frame(void) {
 int main(void) {
     split_frame();
     coalesced_frames();
+    mixed_maximum_and_control_frames();
     resynchronizes_magic();
     rejects_invalid_headers();
     encodes_frame();

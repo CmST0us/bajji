@@ -12,6 +12,7 @@
 | [instrumenting-over-guessing.md](instrumenting-over-guessing.md) | 上面那条缝是怎么找出来的，以及为什么五个"读源码推出来"的假设全错 |
 | [wallpaper-cache-filesystem.md](wallpaper-cache-filesystem.md) | SPIFFS 为什么会在换壁纸时把看门狗喂爆，以及换成 FAT 的经过 |
 | [shared-i2c-bus.md](shared-i2c-bus.md) | 共享 I2C 总线上反复创建销毁设备句柄会和别的任务打架 |
+| [nimble-coc-buffering.md](nimble-coc-buffering.md) | NimBLE CoC 的 SDU slot、credit 和 mbuf block 为什么不能混为一谈 |
 | [vendor-patching.md](vendor-patching.md) | `device/vendor/**` 是怎么固定和打补丁的，直接改为什么会凭空消失 |
 | [concurrent-agent-sessions.md](concurrent-agent-sessions.md) | 两个 agent 在同一个工作区里互删对方代码的真实记录 |
 

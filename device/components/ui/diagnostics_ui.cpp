@@ -192,6 +192,8 @@ const char* choice_label(const Choice* choices, std::size_t count, const char* v
     return fallback;
 }
 
+lv_draw_buf_t* blur_backdrop(const lv_draw_buf_t* source);
+
 struct WebPPlayer {
     std::uint8_t* file{};
     WebPAnimDecoder* decoder{};
@@ -269,20 +271,11 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
     }
     webp_advance(player);
     if (fit) {
-        player->background = lv_draw_buf_create(info.canvas_width, info.canvas_height,
-                                                LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO);
+        player->background = blur_backdrop(player->frame);
         if (!player->background) {
             destroy_webp_player(player);
             return static_cast<WebPPlayer*>(nullptr);
         }
-        for (std::uint32_t y = 0; y < info.canvas_height; ++y) {
-            std::memcpy(static_cast<std::uint8_t*>(player->background->data) +
-                            y * player->background->header.stride,
-                        static_cast<std::uint8_t*>(player->frame->data) +
-                            y * player->frame->header.stride,
-                        info.canvas_width * 4U);
-        }
-        lv_draw_buf_flush_cache(player->background, nullptr);
     }
     auto add_image = [&](bool background) {
         auto* image = lv_image_create(parent);
@@ -290,9 +283,6 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
         if (background) {
             lv_obj_set_pos(image, -27, -27);
             lv_obj_set_size(image, 520, 520);
-            lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
-            lv_obj_set_style_blur_radius(image, 24, 0);
-            lv_obj_set_style_blur_quality(image, LV_BLUR_QUALITY_PRECISION, 0);
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
             lv_obj_set_pos(image, kSafeX, kSafeX);
@@ -304,7 +294,9 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
             lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
         }
         lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
-        player->images[player->image_count++] = image;
+        // The blurred fit-mode backdrop is a snapshot of frame zero. Invalidating it for
+        // every later frame turns a 328x328 animation into a full-screen redraw.
+        if (!background) player->images[player->image_count++] = image;
     };
     if (fit) {
         add_image(true);
@@ -456,6 +448,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     page_since_ms_ = now_ms();
     controls_ = nullptr;
     refresh_overlay_ = nullptr;
+    refresh_spinner_ = nullptr;
     cache_error_ = nullptr;
     cache_error_text_ = nullptr;
     hold_overlay_ = nullptr;
@@ -478,6 +471,12 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
         auto* stale = static_cast<lv_draw_buf_t*>(still_image_);
         still_image_ = nullptr;
         lv_image_cache_drop(stale);  // no widget may hold a decoded view of it past this point
+        lv_draw_buf_destroy(stale);
+    }
+    if (blurred_background_) {
+        auto* stale = static_cast<lv_draw_buf_t*>(blurred_background_);
+        blurred_background_ = nullptr;
+        lv_image_cache_drop(stale);
         lv_draw_buf_destroy(stale);
     }
     if (gif_source_) {
@@ -957,26 +956,35 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     GifSource* gif_source = nullptr;
     auto add_media = [&](bool background) -> lv_obj_t* {
         lv_obj_t* image = nullptr;
-#if LV_USE_GIF
-        if (gif) {
-            image = lv_gif_create(root_);
-            lv_gif_set_color_format(image, LV_COLOR_FORMAT_RGB565);
-            if (gif_source) lv_gif_set_src(image, &gif_source->dsc);
-            else lv_gif_set_src(image, wallpaper.lvgl_path);
-            if (background) lv_gif_pause(image);
-        } else
-#endif
-        {
+        if (background && blurred_background_) {
             image = lv_image_create(root_);
-            if (still) lv_image_set_src(image, still);
-            else lv_image_set_src(image, wallpaper.lvgl_path);
+            lv_image_set_src(image, blurred_background_);
+        } else {
+#if LV_USE_GIF
+            if (gif) {
+                image = lv_gif_create(root_);
+                lv_gif_set_color_format(image, LV_COLOR_FORMAT_RGB565);
+                lv_image_set_antialias(image, false);
+                if (gif_source) lv_gif_set_src(image, &gif_source->dsc);
+                else lv_gif_set_src(image, wallpaper.lvgl_path);
+                if (background) lv_gif_pause(image);
+            } else
+#endif
+            {
+                image = lv_image_create(root_);
+                if (still) lv_image_set_src(image, still);
+                else lv_image_set_src(image, wallpaper.lvgl_path);
+            }
         }
         if (background) {
-            lv_obj_set_pos(image, -27, -27);
-            lv_obj_set_size(image, 520, 520);
-            lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
-            lv_obj_set_style_blur_radius(image, 24, 0);
-            lv_obj_set_style_blur_quality(image, LV_BLUR_QUALITY_PRECISION, 0);
+            lv_obj_set_pos(image, kBackdropOffset, kBackdropOffset);
+            lv_obj_set_size(image, kBackdrop, kBackdrop);
+            if (!blurred_background_) {
+                // Keep the old, slower path only when allocating the pre-rendered buffer failed.
+                lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
+                lv_obj_set_style_blur_radius(image, 24, 0);
+                lv_obj_set_style_blur_quality(image, LV_BLUR_QUALITY_PRECISION, 0);
+            }
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
             lv_obj_set_pos(image, kSafeX, kSafeX);
@@ -1006,6 +1014,12 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
             if (!still) LV_LOG_WARN("still decode failed; drawing from file");
         }
         if (fit) {
+#if LV_USE_GIF
+            if (gif) blurred_background_ = blur_backdrop_from_gif(gif_source, wallpaper.lvgl_path);
+            else
+#endif
+            if (still) blurred_background_ = blur_backdrop(still);
+            if (!blurred_background_) LV_LOG_WARN("pre-rendered blur unavailable; drawing live blur");
             add_media(true);
             auto* veil = object(root_, 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
             lv_obj_set_style_bg_opa(veil, LV_OPA_20, 0);
@@ -1016,7 +1030,9 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(root_, root_clicked, LV_EVENT_PRESSED, this);
 
-    controls_ = object(root_, 0, 0, kDisplay, kDisplay, kBase, 0);
+    // Only the two top buttons fade. Keeping their transparent parent full-screen made every
+    // opacity step invalidate and redraw the wallpaper below all 466 rows.
+    controls_ = object(root_, 0, 0, kDisplay, 112, kBase, 0);
     lv_obj_set_style_bg_opa(controls_, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(controls_, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1043,10 +1059,14 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     label(b, LV_SYMBOL_REFRESH, 20, 14, 36, &lv_font_montserrat_28, kPrimary);
 
     refresh_overlay_ = object(root_, 126, 352, 214, 48, kOverlay, 24);
-    spinner(refresh_overlay_, 10, 8, 32);
+    refresh_spinner_ = spinner(refresh_overlay_, 10, 8, 32);
     label(refresh_overlay_, "正在换一张…", 52, 14, 146,
           kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
-    if (!wallpaper.busy) lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+    if (!wallpaper.busy) {
+        lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+        // A hidden LVGL spinner still runs two infinite animations (lv_spinner.c:77-102).
+        lv_anim_delete(refresh_spinner_, nullptr);
+    }
 
     cache_error_ = object(root_, 83, 304, 300, 48, kOverlay, 24);
     lv_obj_set_style_border_width(cache_error_, 1, 0);
@@ -1200,7 +1220,10 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
     wallpaper_request_refresh();
     request_revision_ = wallpaper.request_revision;
     show_controls();
-    if (refresh_overlay_) lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+    if (refresh_overlay_) {
+        lv_spinner_set_anim_params(refresh_spinner_, 900, 92);
+        lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+    }
     if (!wallpaper.online && cache_error_) {
         lv_label_set_text(cache_error_text_, "等待手机连接 · 显示缓存");
         lv_obj_remove_flag(cache_error_, LV_OBJ_FLAG_HIDDEN);
@@ -1210,13 +1233,17 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
 
 void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
                         const WallpaperStatus& wallpaper, const ButtonEvents& buttons) {
+    const std::uint32_t previous_passkey = latest_link_.passkey;
+    const bool was_online = latest_wallpaper_.online;
     latest_wallpaper_ = wallpaper;
     latest_link_ = link;
     const std::uint32_t now = now_ms();
 
     if (link.passkey && page_ != Page::pairing_code) show(Page::pairing_code, wallpaper, link.passkey);
     if (page_ == Page::pairing_code) {
-        if (pairing_code_ && link.passkey) {
+        // lv_label_set_text_fmt() frees, allocates, lays out, and invalidates even when the
+        // formatted text is unchanged (lv_label.c:138-162).
+        if (pairing_code_ && link.passkey && link.passkey != previous_passkey) {
             lv_label_set_text_fmt(pairing_code_, "%03" PRIu32 " %03" PRIu32,
                                   link.passkey / 1000, link.passkey % 1000);
         }
@@ -1257,7 +1284,7 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
                    wallpaper.last_error != ESP_OK) {
             request_revision_ = wallpaper.request_revision;
             show(Page::error, wallpaper);
-        } else if (loading_state_) {
+        } else if (loading_state_ && wallpaper.online != was_online) {
             lv_label_set_text(loading_state_, wallpaper.online ? "支持 PNG · JPG · GIF · WebP"
                                                                 : "通过 BLE 使用手机网络");
         }
@@ -1269,8 +1296,14 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
             show(Page::image, wallpaper);
         }
         if (refresh_overlay_) {
-            if (wallpaper.busy) lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
-            else lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+            const bool hidden = lv_obj_has_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+            if (wallpaper.busy && hidden) {
+                lv_spinner_set_anim_params(refresh_spinner_, 900, 92);
+                lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+            } else if (!wallpaper.busy && !hidden) {
+                lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
+                lv_anim_delete(refresh_spinner_, nullptr);
+            }
         }
         if (wallpaper.request_revision != request_revision_) {
             request_revision_ = wallpaper.request_revision;
