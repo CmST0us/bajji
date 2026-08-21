@@ -42,7 +42,10 @@ constexpr size_t kPngDecodedLimit = 4U * 1024U * 1024U;
 // so they stay on a tighter budget than a still of the same size would.
 constexpr size_t kAnimatedDecodedLimit = 2U * 1024U * 1024U;
 constexpr unsigned kRedirectLimit = 5;
-constexpr unsigned kDownloadAttempts = 3;
+// Four goes at the proxy before the direct fallback: the proxy refuses roughly one
+// request in ten because of the origin it redirects to, so this makes reaching the
+// fallback - and the multi-megabyte download it implies - very unlikely.
+constexpr unsigned kDownloadAttempts = 5;
 constexpr wallpaper_media_format_t kFormats[] = {
     WALLPAPER_MEDIA_JPEG, WALLPAPER_MEDIA_PNG, WALLPAPER_MEDIA_GIF, WALLPAPER_MEDIA_WEBP,
 };
