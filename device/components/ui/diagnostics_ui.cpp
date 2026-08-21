@@ -638,7 +638,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
         add_media(false);
     }
     lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(root_, root_clicked, LV_EVENT_CLICKED, this);
+    lv_obj_add_event_cb(root_, root_clicked, LV_EVENT_PRESSED, this);
 
     controls_ = object(root_, 0, 0, kDisplay, kDisplay, kBase, 0);
     lv_obj_set_style_bg_opa(controls_, LV_OPA_TRANSP, 0);
