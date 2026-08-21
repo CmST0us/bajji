@@ -34,6 +34,7 @@
 #include "i2c_bus.h"
 #include "lgfx/v1/panel/Panel_CO5300.hpp"
 #include "lvgl.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 
 namespace bajji {
@@ -53,6 +54,8 @@ constexpr int kDisplayPowerReadyMs = 80;
 constexpr int kDisplayPowerSettleMs = 50;
 constexpr int kIoeWriteAttempts = 5;
 constexpr int kIoeWriteRetryMs = 2;
+constexpr char kBoardNvsNamespace[] = "board";
+constexpr char kBrightnessKey[] = "brightness";
 // One buffer tall enough for the whole screen: LVGL renders each invalidated area in a
 // single pass, so there are no chunk seams, while the panel still pushes only the dirty
 // rect. The flush is synchronous, so a second buffer would buy nothing.
@@ -207,6 +210,25 @@ bool init_pmic() {
     pmic->gpioSetPull(M5PM1_GPIO_NUM_2, M5PM1_GPIO_PULL_NONE);
     pmic->setSingleResetDisable(true);
     return true;
+}
+
+void load_brightness(BoardStatus& status) {
+    nvs_handle_t handle = 0;
+    if (nvs_open(kBoardNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
+    std::uint8_t value = status.brightness;
+    if (nvs_get_u8(handle, kBrightnessKey, &value) == ESP_OK && value <= 100) {
+        status.brightness = value;
+    }
+    nvs_close(handle);
+}
+
+void persist_brightness(std::uint8_t value) {
+    nvs_handle_t handle = 0;
+    esp_err_t result = nvs_open(kBoardNvsNamespace, NVS_READWRITE, &handle);
+    if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, value);
+    if (result == ESP_OK) result = nvs_commit(handle);
+    if (handle) nvs_close(handle);
+    if (result != ESP_OK) ESP_LOGW(kTag, "brightness persistence failed: %s", esp_err_to_name(result));
 }
 
 // Pulse the OLED (IO5) and touch (IO4) reset lines together, as M5GFX.cpp:1916-1920 does.
@@ -491,6 +513,7 @@ esp_err_t BoardHal::init() {
         if (nvs_result == ESP_OK) nvs_result = nvs_flash_init();
     }
     if (nvs_result != ESP_OK || !init_i2c()) return nvs_result == ESP_OK ? ESP_FAIL : nvs_result;
+    load_brightness(status_);
 
     status_.pmic = init_pmic() ? Health::ok : Health::error;
     status_.io_expander = init_ioe() ? Health::ok : Health::error;
@@ -498,6 +521,7 @@ esp_err_t BoardHal::init() {
     status_.display = status_.io_expander == Health::ok && init_display_and_lvgl()
                           ? Health::ok
                           : Health::error;
+    if (status_.display == Health::ok) display->set_brightness(status_.brightness);
     status_.touch = status_.io_expander == Health::ok && init_touch()
                         ? Health::ok
                         : Health::error;
@@ -560,6 +584,7 @@ void BoardHal::poll() {
 void BoardHal::set_brightness(std::uint8_t percent) {
     status_.brightness = std::min<std::uint8_t>(percent, 100);
     if (display) display->set_brightness(status_.brightness);
+    persist_brightness(status_.brightness);
 }
 
 std::uint8_t BoardHal::brightness() const { return status_.brightness; }
