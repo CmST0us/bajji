@@ -16,3 +16,19 @@ index dc27d6a95..fe1556a50 100644
  /  0: Disable
  /  1: Enable
  */
+diff --git a/src/widgets/gif/lv_gif.c b/src/widgets/gif/lv_gif.c
+index be6ec1867..c9de3b23e 100644
+--- a/src/widgets/gif/lv_gif.c
++++ b/src/widgets/gif/lv_gif.c
+@@ -563,6 +563,11 @@ static void gif_initialize(lv_gif_t * gifobj)
+         return;
+     }
+ 
++    /* lv_draw_buf_create() does not initialise the pixel data. A GIF's first frame is
++     * often smaller than the canvas, and every later frame may be partial, so without
++     * this the uncovered pixels display whatever happened to be in memory. */
++    lv_draw_buf_clear(gifobj->draw_buf, NULL);
++
+     lv_image_set_src((lv_obj_t *) gifobj, gifobj->draw_buf);
+ 
+     gifobj->loop_count = GIF_getLoopCount(&gifobj->gif);
