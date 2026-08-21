@@ -4,10 +4,18 @@
 #include <cstdint>
 
 #include "esp_err.h"
+#include "wallpaper_format.h"
 
 namespace bajji {
 
-inline constexpr const char* kWallpaperLvglPath = "S:/wallpaper.jpg";
+enum class DisplayMode : std::uint8_t { cover = 0, fit_blur = 1 };
+
+struct WallpaperSettings {
+    bool configured{};
+    char category[24]{};
+    char type[16]{};
+    DisplayMode display_mode{DisplayMode::cover};
+};
 
 struct WallpaperStatus {
     bool mounted{};
@@ -16,18 +24,19 @@ struct WallpaperStatus {
     bool busy{};
     bool has_cache{};
     std::uint32_t revision{};
+    std::uint32_t request_revision{};
     std::int32_t last_error{};
-    char state[48]{};
-    char start_date[9]{};
-    char copyright[192]{};
-    char test_result[96]{};
+    WallpaperSettings settings{};
+    wallpaper_media_info_t media{};
+    char lvgl_path[32]{};
+    char state[80]{};
 };
 
 esp_err_t wallpaper_start();
 void wallpaper_set_online(bool online_and_time_valid);
 void wallpaper_request_refresh();
-void wallpaper_request_dns_test();
-void wallpaper_request_https_test();
+esp_err_t wallpaper_save_settings(const char* category, const char* type);
+esp_err_t wallpaper_set_display_mode(DisplayMode mode);
 WallpaperStatus wallpaper_snapshot();
 
 }  // namespace bajji

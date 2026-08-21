@@ -15,10 +15,12 @@ extern "C" {
 #define BAJJI_BRIDGE_MTU 1536U
 
 typedef struct {
+    bool initialized;
     bool advertising;
     bool connected;
     bool encrypted;
     bool bonded;
+    bool has_bond;
     bool coc_connected;
     bool bridge_ready;
     uint32_t passkey;

@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 
+#include "button_state.hpp"
 #include "esp_err.h"
 
 namespace bajji {
@@ -59,7 +60,7 @@ public:
     void play_tone(std::uint16_t frequency_hz, std::uint16_t duration_ms);
     void shutdown();
 
-    bool button_b_long_pressed();
+    ButtonEvents take_button_events();
     bool lvgl_lock(std::uint32_t timeout_ms = 1000);
     void lvgl_unlock();
 

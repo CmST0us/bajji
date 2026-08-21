@@ -227,6 +227,7 @@ static void clear_bond_on_host(struct ble_npl_event* event) {
     }
     portENTER_CRITICAL(&status_lock);
     status.bonded = false;
+    status.has_bond = false;
     status.passkey = 0;
     portEXIT_CRITICAL(&status_lock);
     if (connection_handle != BLE_HS_CONN_HANDLE_NONE) {
@@ -526,6 +527,7 @@ static void update_connection_status(uint16_t handle) {
     status.connected = true;
     status.encrypted = desc.sec_state.encrypted;
     status.bonded = desc.sec_state.bonded;
+    if (desc.sec_state.bonded) status.has_bond = true;
     status.connection_interval_units = desc.conn_itvl;
     portEXIT_CRITICAL(&status_lock);
 }
@@ -561,6 +563,7 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             tx_head = tx_count = 0;
             status.connected = false;
             status.encrypted = false;
+            status.bonded = false;
             status.coc_connected = false;
             status.peer_coc_mtu = 0;
             status.peer_mps = 0;
@@ -585,6 +588,7 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
         case BLE_GAP_EVENT_ENC_CHANGE: {
             update_connection_status(event->enc_change.conn_handle);
             portENTER_CRITICAL(&status_lock);
+            status.passkey = 0;
             const bool encrypted = status.encrypted;
             const bool bonded = status.bonded;
             portEXIT_CRITICAL(&status_lock);
@@ -637,6 +641,7 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
                 return BLE_GAP_REPEAT_PAIRING_IGNORE;
             }
             ble_store_util_delete_peer(&desc.peer_id_addr);
+            set_bool(&status.has_bond, false);
             return BLE_GAP_REPEAT_PAIRING_RETRY;
         }
         case BLE_GAP_EVENT_PASSKEY_ACTION: {
@@ -696,6 +701,9 @@ static void on_sync(void) {
         ESP_LOGE(tag, "no BLE identity address");
         return;
     }
+    ble_addr_t peer;
+    set_bool(&status.has_bond, bonded_peers(&peer) > 0);
+    set_bool(&status.initialized, true);
     result = ble_gap_set_prefered_default_le_phy(BLE_HCI_LE_PHY_2M_PREF_MASK,
                                                   BLE_HCI_LE_PHY_2M_PREF_MASK);
     if (result != 0) {

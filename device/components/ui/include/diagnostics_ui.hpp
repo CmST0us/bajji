@@ -5,35 +5,77 @@
 
 #include "ble_link.h"
 #include "board_hal.hpp"
-#include "ip_bridge.h"
 #include "wallpaper_service.hpp"
 
 struct _lv_obj_t;
+struct _lv_event_t;
 
 namespace bajji {
 
-class DiagnosticsUI {
+class ProductUI {
 public:
-    void create();
-    void toggle_tools();
+    void create(const ble_link_status_t& link, const WallpaperStatus& wallpaper);
     void refresh(const BoardStatus& board, const ble_link_status_t& link,
-                 const ip_bridge_status_t& ip, const WallpaperStatus& wallpaper);
+                 const WallpaperStatus& wallpaper, const ButtonEvents& buttons);
 
 private:
-    _lv_obj_t* home_{};
-    _lv_obj_t* tools_{};
-    _lv_obj_t* wallpaper_image_{};
-    _lv_obj_t* home_top_{};
-    _lv_obj_t* home_time_{};
-    _lv_obj_t* home_date_{};
-    _lv_obj_t* home_caption_{};
-    _lv_obj_t* home_state_{};
-    _lv_obj_t* network_{};
-    _lv_obj_t* bluetooth_{};
-    _lv_obj_t* wallpaper_{};
-    _lv_obj_t* test_result_{};
+    enum class Page : std::uint8_t {
+        startup,
+        unpaired,
+        pairing_code,
+        pairing_success,
+        settings,
+        category,
+        type,
+        loading,
+        image,
+        error,
+    };
+
+    void show(Page page, const WallpaperStatus& wallpaper, std::uint32_t passkey = 0);
+    void show_image(const WallpaperStatus& wallpaper);
+    void show_controls();
+    void hide_hold();
+    void update_settings_labels();
+    void select_category(std::uint32_t index);
+    void select_type(std::uint32_t index);
+    void save_settings();
+    void toggle_mode(const WallpaperStatus& wallpaper);
+    void refresh_image(const WallpaperStatus& wallpaper);
+
+    static void root_clicked(_lv_event_t* event);
+    static void category_row_clicked(_lv_event_t* event);
+    static void type_row_clicked(_lv_event_t* event);
+    static void save_clicked(_lv_event_t* event);
+    static void category_choice_clicked(_lv_event_t* event);
+    static void type_choice_clicked(_lv_event_t* event);
+
+    Page page_{Page::startup};
+    _lv_obj_t* root_{};
+    _lv_obj_t* controls_{};
+    _lv_obj_t* refresh_overlay_{};
+    _lv_obj_t* cache_error_{};
+    _lv_obj_t* cache_error_text_{};
+    _lv_obj_t* hold_overlay_{};
+    _lv_obj_t* hold_arc_{};
+    _lv_obj_t* hold_ms_{};
+    _lv_obj_t* pairing_code_{};
+    _lv_obj_t* loading_state_{};
+    _lv_obj_t* category_value_{};
+    _lv_obj_t* type_value_{};
+    _lv_obj_t* type_row_{};
+    void* webp_player_{};
+    WallpaperSettings draft_{};
+    DisplayMode display_mode_{DisplayMode::cover};
+    WallpaperStatus latest_wallpaper_{};
+    std::uint32_t page_since_ms_{};
+    std::uint32_t controls_deadline_ms_{};
+    std::uint32_t controls_hide_started_ms_{};
+    std::uint32_t cache_error_deadline_ms_{};
     std::uint32_t wallpaper_revision_{};
-    bool tools_visible_{};
+    std::uint32_t request_revision_{};
+    bool controls_visible_{};
+    bool controls_hiding_{};
 };
 
 }  // namespace bajji

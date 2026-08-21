@@ -21,5 +21,9 @@
   "lvgl": {
     "ref": "85aa60d18b3d5e5588d7b247abf90198f07c8a63",
     "url": "https://github.com/lvgl/lvgl.git"
+  },
+  "libwebp": {
+    "ref": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
+    "url": "https://github.com/webmproject/libwebp.git"
   }
 }

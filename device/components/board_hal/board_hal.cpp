@@ -58,7 +58,7 @@ i2c_master_dev_handle_t rtc_device = nullptr;
 bmi270_bmm150_handle_t imu = nullptr;
 SemaphoreHandle_t lvgl_mutex = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
-ButtonState button_b;
+ButtonState buttons;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
 std::int64_t sensor_poll_us = 0;
@@ -449,8 +449,9 @@ BoardStatus BoardHal::snapshot() { return status_; }
 
 void BoardHal::poll() {
     const auto now = esp_timer_get_time();
+    const bool a = gpio_get_level(kButtonA) == 0;
     const bool b = gpio_get_level(kButtonB) == 0;
-    button_b.update(b, static_cast<std::uint64_t>(now / 1000));
+    buttons.update(a, b, static_cast<std::uint64_t>(now / 1000));
 
     if (motor_stop_us && now >= motor_stop_us) stop_vibration();
     if (status_.touch == Health::ok) status_.touch_point = read_touch();
@@ -533,7 +534,7 @@ void BoardHal::shutdown() {
     if (pmic) pmic->shutdown();
 }
 
-bool BoardHal::button_b_long_pressed() { return button_b.take_long_press(); }
+ButtonEvents BoardHal::take_button_events() { return buttons.take_events(); }
 
 bool BoardHal::lvgl_lock(std::uint32_t timeout_ms) {
     return lvgl_mutex && xSemaphoreTake(lvgl_mutex, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;

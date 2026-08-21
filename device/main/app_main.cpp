@@ -32,9 +32,9 @@ extern "C" void app_main() {
         ESP_LOGE("main", "wallpaper service incomplete: %s", esp_err_to_name(wallpaper_result));
     }
 
-    bajji::DiagnosticsUI ui;
+    bajji::ProductUI ui;
     if (board.snapshot().display == bajji::Health::ok && board.lvgl_lock()) {
-        ui.create();
+        ui.create(ble_link_snapshot(), bajji::wallpaper_snapshot());
         board.lvgl_unlock();
     }
 
@@ -43,14 +43,13 @@ extern "C" void app_main() {
     std::uint64_t last_tx_bytes = 0;
     while (true) {
         board.poll();
-        const bool show_tools = board.button_b_long_pressed();
+        const bajji::ButtonEvents buttons = board.take_button_events();
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();
         bajji::wallpaper_set_online(ip.link_up && ip.time_valid);
         const bajji::WallpaperStatus wallpaper = bajji::wallpaper_snapshot();
         if (board.lvgl_lock(50)) {
-            if (show_tools) ui.toggle_tools();
-            ui.refresh(board.snapshot(), link, ip, wallpaper);
+            ui.refresh(board.snapshot(), link, wallpaper, buttons);
             board.lvgl_unlock();
         }
         const TickType_t now = xTaskGetTickCount();
