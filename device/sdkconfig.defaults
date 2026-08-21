@@ -12,6 +12,12 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_COMPILER_CXX_EXCEPTIONS=n
 CONFIG_COMPILER_CXX_RTTI=n
 CONFIG_LV_COLOR_DEPTH_16=y
+# LVGL reports every decode and allocation failure through LV_LOG_WARN, which
+# compiles to nothing while LV_USE_LOG is off. Without this a broken wallpaper
+# just renders wrong, silently. WARN and above only, routed through printf.
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_LEVEL_WARN=y
+CONFIG_LV_LOG_PRINTF=y
 CONFIG_LV_USE_FLOAT=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_18=y
@@ -41,6 +47,14 @@ CONFIG_LV_USE_GIF=y
 # CONFIG_LV_USE_LIBWEBP is not set
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# Google Trust Services and Cloudflare hosts send their root cross-signed by an older CA, so
+# the last certificate in the chain is GTS Root R4 issued by GlobalSign Root CA. esp_crt_bundle
+# looks the trust anchor up by the issuer of that last certificate (esp_crt_bundle.c:334), and
+# GlobalSign Root CA is not in the bundle - GTS Root R4 itself is. Without this the handshake
+# fails with "No matching trusted root certificate found" even though the root is trusted.
+# Enabling it registers a per-level trusted-cert callback instead, so the chain closes at
+# GTS Root R4. Costs about 700 bytes of heap.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
 
 # NimBLE peripheral: one Secure Connections bond and one LE L2CAP CoC.
 CONFIG_BT_ENABLED=y
