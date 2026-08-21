@@ -50,6 +50,7 @@ constexpr gpio_num_t kDisplayCs = GPIO_NUM_39;
 constexpr gpio_num_t kDisplayTe = GPIO_NUM_38;
 constexpr int kSampleRate = 44100;
 constexpr int kDisplayPowerAttempts = 25;
+constexpr int kDisplayPowerOffMs = 50;
 constexpr int kDisplayPowerReadyMs = 80;
 constexpr int kDisplayPowerSettleMs = 50;
 constexpr int kDisplayInitAttempts = 3;
@@ -297,8 +298,6 @@ bool init_ioe() {
         ioe->pinMode(pin, OUTPUT);
     }
     ioe->digitalWrite(M5IOE1_PIN_10, 0);
-    ioe->digitalWrite(M5IOE1_PIN_4, 1);
-    ioe->digitalWrite(M5IOE1_PIN_5, 1);
     ioe->digitalWrite(M5IOE1_PIN_1, 1);  // MUX_CTR, high in M5GFX.cpp:1913
     ioe->digitalWrite(M5IOE1_PIN_3, 1);
     ioe->setPwmFrequency(5000);
@@ -306,8 +305,16 @@ bool init_ioe() {
     gpio_set_direction(kSpeakerPa, GPIO_MODE_OUTPUT);
     gpio_set_level(kSpeakerPa, 0);
 
+    // The IO expander and OLED rail survive an ESP reset while running on battery.
+    // Force a real power-off with both reset lines asserted, otherwise a stale panel
+    // can keep producing TE pulses and make the new session look initialized.
+    if (!write_ioe_verified(M5IOE1_PIN_4, 0) ||
+        !write_ioe_verified(M5IOE1_PIN_5, 0) ||
+        !write_ioe_verified(M5IOE1_PIN_8, 0)) return false;
+    vTaskDelay(pdMS_TO_TICKS(kDisplayPowerOffMs));
+
     for (int attempt = 1; attempt <= kDisplayPowerAttempts; ++attempt) {
-        ioe->digitalWrite(M5IOE1_PIN_8, 1);
+        if (!write_ioe_verified(M5IOE1_PIN_8, 1)) continue;
         vTaskDelay(pdMS_TO_TICKS(kDisplayPowerReadyMs));
         if (ioe->digitalRead(M5IOE1_PIN_8) == 1) {
             vTaskDelay(pdMS_TO_TICKS(kDisplayPowerSettleMs));
