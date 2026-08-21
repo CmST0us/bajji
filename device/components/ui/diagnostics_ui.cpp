@@ -173,6 +173,7 @@ struct WebPPlayer {
     std::uint8_t* file{};
     WebPAnimDecoder* decoder{};
     lv_draw_buf_t* frame{};
+    lv_draw_buf_t* background{};
     lv_timer_t* timer{};
     lv_obj_t* images[2]{};
     std::uint32_t image_count{};
@@ -212,6 +213,7 @@ void destroy_webp_player(WebPPlayer* player) {
     if (!player) return;
     if (player->timer) lv_timer_delete(player->timer);
     if (player->decoder) WebPAnimDecoderDelete(player->decoder);
+    if (player->background) lv_draw_buf_destroy(player->background);
     if (player->frame) lv_draw_buf_destroy(player->frame);
     lv_free(player->file);
     delete player;
@@ -242,9 +244,26 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
         destroy_webp_player(player);
         return nullptr;
     }
+    webp_advance(player);
+    if (fit) {
+        player->background = lv_draw_buf_create(info.canvas_width, info.canvas_height,
+                                                LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO);
+        if (!player->background) {
+            destroy_webp_player(player);
+            return static_cast<WebPPlayer*>(nullptr);
+        }
+        for (std::uint32_t y = 0; y < info.canvas_height; ++y) {
+            std::memcpy(static_cast<std::uint8_t*>(player->background->data) +
+                            y * player->background->header.stride,
+                        static_cast<std::uint8_t*>(player->frame->data) +
+                            y * player->frame->header.stride,
+                        info.canvas_width * 4U);
+        }
+        lv_draw_buf_flush_cache(player->background, nullptr);
+    }
     auto add_image = [&](bool background) {
         auto* image = lv_image_create(parent);
-        lv_image_set_src(image, player->frame);
+        lv_image_set_src(image, background ? player->background : player->frame);
         if (background) {
             lv_obj_set_pos(image, -27, -27);
             lv_obj_set_size(image, 520, 520);
@@ -270,7 +289,6 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
         lv_obj_set_style_bg_opa(veil, LV_OPA_20, 0);
     }
     add_image(false);
-    webp_advance(player);
     if (animated) player->timer = lv_timer_create(webp_timer, 16, player);
     return player;
 }
@@ -570,6 +588,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
             lv_gif_set_color_format(image, LV_COLOR_FORMAT_RGB565);
             if (gif_source) lv_gif_set_src(image, &gif_source->dsc);
             else lv_gif_set_src(image, wallpaper.lvgl_path);
+            if (background) lv_gif_pause(image);
         } else
 #endif
         {
