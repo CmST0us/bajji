@@ -1,0 +1,18 @@
+diff --git a/src/libs/tjpgd/tjpgdcnf.h b/src/libs/tjpgd/tjpgdcnf.h
+index dc27d6a95..fe1556a50 100644
+--- a/src/libs/tjpgd/tjpgdcnf.h
++++ b/src/libs/tjpgd/tjpgdcnf.h
+@@ -12,8 +12,11 @@
+ /  2: Grayscale (8-bit/pix)
+ */
+ 
+-#define JD_USE_SCALE    0
+-/* Switches output descaling feature.
++#define JD_USE_SCALE    1
++/* Enabled so the wallpaper UI can decode oversized JPEGs straight to 1/2, 1/4 or 1/8 instead
++/  of allocating a full-resolution RGB565 buffer first (see decode_jpeg_scaled() in
++/  components/ui/diagnostics_ui.cpp). LVGL's own decoder passes scale 0 and is unaffected.
++/  Switches output descaling feature.
+ /  0: Disable
+ /  1: Enable
+ */

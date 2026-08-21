@@ -9,6 +9,7 @@
 
 #include "lvgl.h"
 #include "draw/lv_image_decoder_private.h"
+#include "libs/tjpgd/tjpgd.h"
 #include "misc/cache/instance/lv_image_cache.h"
 #include "webp/demux.h"
 
@@ -624,7 +625,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
 // from a file therefore re-reads and re-decodes the entire wallpaper on every redraw, and
 // each SPIFFS read stalls both cores while the flash cache is disabled. Decode once into an
 // RGB565 buffer here so redraws are a plain blit from PSRAM.
-static lv_draw_buf_t* decode_still(const char* path) {
+static lv_draw_buf_t* decode_still_full(const char* path) {
     lv_image_header_t header{};
     if (lv_image_decoder_get_info(path, &header) != LV_RESULT_OK) return nullptr;
     if (!header.w || !header.h) return nullptr;
@@ -688,6 +689,184 @@ static lv_draw_buf_t* decode_still(const char* path) {
     lv_canvas_finish_layer(canvas, &layer);
 
     lv_obj_delete(canvas);  // the destructor drops the cache entry but leaves the buffer to us
+    return buffer;
+}
+
+
+// The blurred background covers a 520x520 box and the foreground fits inside 328x328, so
+// detail beyond 520 px on the short edge is never visible on a 468x468 screen. Left at full
+// resolution it still costs PSRAM for as long as the wallpaper is shown, and LVGL resamples
+// the whole source again on every full-screen redraw. Box-filter it down once instead.
+// Averaging beats LVGL's 2x2 bilinear here: at a 0.5x factor bilinear drops half the source
+// pixels outright and aliases.
+constexpr std::int32_t kStillShortEdge = 520;
+
+static lv_draw_buf_t* shrink_still(lv_draw_buf_t* source) {
+    if (!source) return nullptr;
+    const std::int32_t sw = static_cast<std::int32_t>(source->header.w);
+    const std::int32_t sh = static_cast<std::int32_t>(source->header.h);
+    if (sw <= 0 || sh <= 0) return source;
+    const std::int32_t shorter = sw < sh ? sw : sh;
+    if (shorter <= kStillShortEdge) return source;
+
+    const std::int32_t dw = static_cast<std::int32_t>(
+        static_cast<std::int64_t>(sw) * kStillShortEdge / shorter);
+    const std::int32_t dh = static_cast<std::int32_t>(
+        static_cast<std::int64_t>(sh) * kStillShortEdge / shorter);
+    if (dw <= 0 || dh <= 0) return source;
+
+    auto* target = lv_draw_buf_create(static_cast<std::uint32_t>(dw), static_cast<std::uint32_t>(dh),
+                                      LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
+    if (!target) return source;  // the full-resolution buffer still draws correctly
+
+    const std::uint8_t* src = source->data;
+    const std::int32_t src_stride = static_cast<std::int32_t>(source->header.stride);
+    std::uint8_t* dst = target->data;
+    const std::int32_t dst_stride = static_cast<std::int32_t>(target->header.stride);
+
+    for (std::int32_t ty = 0; ty < dh; ++ty) {
+        const std::int32_t y0 = static_cast<std::int32_t>(static_cast<std::int64_t>(ty) * sh / dh);
+        std::int32_t y1 = static_cast<std::int32_t>(static_cast<std::int64_t>(ty + 1) * sh / dh);
+        if (y1 <= y0) y1 = y0 + 1;
+        if (y1 > sh) y1 = sh;
+        auto* out = reinterpret_cast<std::uint16_t*>(dst + ty * dst_stride);
+        for (std::int32_t tx = 0; tx < dw; ++tx) {
+            const std::int32_t x0 = static_cast<std::int32_t>(static_cast<std::int64_t>(tx) * sw / dw);
+            std::int32_t x1 = static_cast<std::int32_t>(static_cast<std::int64_t>(tx + 1) * sw / dw);
+            if (x1 <= x0) x1 = x0 + 1;
+            if (x1 > sw) x1 = sw;
+            std::uint32_t red = 0, green = 0, blue = 0, count = 0;
+            for (std::int32_t sy = y0; sy < y1; ++sy) {
+                const auto* in = reinterpret_cast<const std::uint16_t*>(src + sy * src_stride);
+                for (std::int32_t sx = x0; sx < x1; ++sx) {
+                    const std::uint16_t pixel = in[sx];
+                    red += (pixel >> 11) & 0x1f;
+                    green += (pixel >> 5) & 0x3f;
+                    blue += pixel & 0x1f;
+                    ++count;
+                }
+            }
+            out[tx] = static_cast<std::uint16_t>(((red / count) << 11) | ((green / count) << 5) |
+                                                 (blue / count));
+        }
+    }
+    lv_draw_buf_flush_cache(target, nullptr);
+    LV_LOG_USER("wallpaper shrunk %" LV_PRId32 "x%" LV_PRId32 " to %" LV_PRId32 "x%" LV_PRId32,
+                sw, sh, dw, dh);
+    lv_draw_buf_destroy(source);
+    return target;
+}
+
+// LVGL's JPEG decoder always runs at full resolution: lv_tjpgd.c:232 pins jd->scale to 0. A
+// 1500x2300 wallpaper therefore wants 6.9 MB of RGB565 before anything can shrink it, which
+// does not fit next to the two framebuffers. TJpgDec can halve each axis up to three times
+// during the IDCT instead (tjpgd.c:847), which needs no extra memory and is cheaper than a
+// full decode, so drive it directly and pick the ratio that fits. JD_USE_SCALE is turned on
+// by patches/lvgl.patch for this.
+constexpr std::size_t kJpegWorkSize = 4096;  // the pool size TJpgDec recommends
+constexpr std::size_t kJpegDecodeBudget = 2U * 1024U * 1024U;
+
+struct JpegSession {
+    lv_fs_file_t file{};
+    lv_draw_buf_t* target{};
+};
+
+std::size_t jpeg_read(JDEC* decoder, std::uint8_t* buffer, std::size_t length) {
+    auto* session = static_cast<JpegSession*>(decoder->device);
+    if (buffer) {
+        std::uint32_t read = 0;
+        if (lv_fs_read(&session->file, buffer, length, &read) != LV_FS_RES_OK) return 0;
+        return read;
+    }
+    std::uint32_t position = 0;
+    if (lv_fs_tell(&session->file, &position) != LV_FS_RES_OK) return 0;
+    if (lv_fs_seek(&session->file, position + length, LV_FS_SEEK_SET) != LV_FS_RES_OK) return 0;
+    return length;
+}
+
+int jpeg_write(JDEC* decoder, void* bitmap, JRECT* rect) {
+    auto* session = static_cast<JpegSession*>(decoder->device);
+    lv_draw_buf_t* target = session->target;
+    const std::int32_t width = static_cast<std::int32_t>(target->header.w);
+    const std::int32_t height = static_cast<std::int32_t>(target->header.h);
+    const std::int32_t stride = static_cast<std::int32_t>(target->header.stride);
+    const std::int32_t span = static_cast<std::int32_t>(rect->right) - rect->left + 1;
+    // TJpgDec descales the rect itself, so these are already destination coordinates. They
+    // cannot leave the buffer for a well formed image; clamp anyway rather than trust the file.
+    if (rect->right >= width || rect->bottom >= height || span <= 0) return 0;
+    const auto* source = static_cast<const std::uint8_t*>(bitmap);
+    for (std::int32_t y = rect->top; y <= static_cast<std::int32_t>(rect->bottom); ++y) {
+        auto* out = reinterpret_cast<std::uint16_t*>(target->data + y * stride) + rect->left;
+        for (std::int32_t x = 0; x < span; ++x) {
+            // tjpgd.c:885 writes blue first, which is also LVGL's RGB888 byte order.
+            const std::uint8_t blue = source[0];
+            const std::uint8_t green = source[1];
+            const std::uint8_t red = source[2];
+            source += 3;
+            out[x] = static_cast<std::uint16_t>(((red & 0xf8) << 8) | ((green & 0xfc) << 3) |
+                                                (blue >> 3));
+        }
+    }
+    return 1;
+}
+
+static lv_draw_buf_t* decode_jpeg_scaled(const char* path) {
+    auto* session = new (std::nothrow) JpegSession;
+    if (!session) return nullptr;
+    if (lv_fs_open(&session->file, path, LV_FS_MODE_RD) != LV_FS_RES_OK) {
+        delete session;
+        return nullptr;
+    }
+    auto* work = lv_malloc(kJpegWorkSize);
+    auto* decoder = static_cast<JDEC*>(lv_malloc(sizeof(JDEC)));
+    lv_draw_buf_t* buffer = nullptr;
+    if (work && decoder && jd_prepare(decoder, jpeg_read, work, kJpegWorkSize, session) == JDR_OK) {
+        // 64-bit: width and height are 16 bit each, so the product times two overflows a
+        // 32-bit size_t near the top of the range and would pick scale 0 for a huge image.
+        std::uint8_t scale = 0;
+        while (scale < 3 && static_cast<std::uint64_t>(decoder->width >> scale) *
+                                    (decoder->height >> scale) * 2U > kJpegDecodeBudget) {
+            ++scale;
+        }
+        const std::uint32_t width = decoder->width >> scale;
+        const std::uint32_t height = decoder->height >> scale;
+        if (width && height) {
+            buffer = lv_draw_buf_create(width, height, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
+        }
+        if (buffer) {
+            session->target = buffer;
+            const JRESULT result = jd_decomp(decoder, jpeg_write, scale);
+            if (result != JDR_OK) {
+                LV_LOG_WARN("jd_decomp failed: %d", result);
+                lv_draw_buf_destroy(buffer);
+                buffer = nullptr;
+            } else {
+                lv_draw_buf_flush_cache(buffer, nullptr);
+                LV_LOG_USER("jpeg %ux%u decoded at 1/%u", decoder->width, decoder->height,
+                            1U << scale);
+            }
+        }
+    }
+    lv_free(decoder);
+    lv_free(work);
+    lv_fs_close(&session->file);
+    delete session;
+    return buffer;
+}
+
+static lv_draw_buf_t* decode_still(const char* path) {
+    const char* extension = lv_fs_get_ext(path);
+    lv_draw_buf_t* buffer = nullptr;
+    if (lv_strcmp(extension, "jpg") == 0 || lv_strcmp(extension, "jpeg") == 0) {
+        buffer = decode_jpeg_scaled(path);
+        if (!buffer) LV_LOG_WARN("scaled jpeg decode failed; retrying at full resolution");
+    }
+    if (!buffer) buffer = decode_still_full(path);
+    if (!buffer) return nullptr;
+    // The image lives in our own buffer now, so the decoder's cached copy - ARGB8888, four
+    // bytes per pixel, for PNG - is dead weight for as long as it survives eviction.
+    lv_image_cache_drop(path);
+    buffer = shrink_still(buffer);
     return buffer;
 }
 

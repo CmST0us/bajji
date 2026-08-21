@@ -1,5 +1,6 @@
 {
   "BMI270_BMM150_Sensor": {
+    "patch": "BMI270_BMM150_Sensor.patch",
     "ref": "ae8bc480bca638d3458e65d5e9a4fff4270c1430",
     "submodules": true,
     "url": "https://github.com/lbuque/BMI270_BMM150_Sensor.git"
@@ -20,7 +21,8 @@
   },
   "lvgl": {
     "ref": "85aa60d18b3d5e5588d7b247abf90198f07c8a63",
-    "url": "https://github.com/lvgl/lvgl.git"
+    "url": "https://github.com/lvgl/lvgl.git",
+    "patch": "lvgl.patch"
   },
   "libwebp": {
     "ref": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
