@@ -52,6 +52,8 @@ constexpr int kSampleRate = 44100;
 constexpr int kDisplayPowerAttempts = 25;
 constexpr int kDisplayPowerReadyMs = 80;
 constexpr int kDisplayPowerSettleMs = 50;
+constexpr int kDisplayInitAttempts = 3;
+constexpr int kDisplayTeTimeoutMs = 100;
 constexpr int kIoeWriteAttempts = 5;
 constexpr int kIoeWriteRetryMs = 2;
 constexpr char kBoardNvsNamespace[] = "board";
@@ -255,6 +257,28 @@ bool reset_display_and_touch() {
     return true;
 }
 
+bool reset_display() {
+    if (!write_ioe_verified(M5IOE1_PIN_5, 0)) return false;
+    vTaskDelay(pdMS_TO_TICKS(8));
+    if (!write_ioe_verified(M5IOE1_PIN_5, 1)) return false;
+    vTaskDelay(pdMS_TO_TICKS(2));
+    return true;
+}
+
+bool display_te_active() {
+    int previous = gpio_get_level(kDisplayTe);
+    int edges = 0;
+    for (int elapsed = 0; elapsed < kDisplayTeTimeoutMs; ++elapsed) {
+        vTaskDelay(pdMS_TO_TICKS(1));
+        const int current = gpio_get_level(kDisplayTe);
+        if (current != previous) {
+            previous = current;
+            if (++edges >= 2) return true;
+        }
+    }
+    return false;
+}
+
 bool init_ioe() {
     ioe = std::make_unique<M5IOE1>();
     if (ioe->begin(native_i2c_bus, 0x4f, M5IOE1_I2C_FREQ_400K) != M5IOE1_OK &&
@@ -356,10 +380,13 @@ void lvgl_task(void*) {
 }
 
 bool init_display_and_lvgl() {
-    display = std::make_unique<StopWatchDisplay>();
-    if (!display->init()) {
+    for (int attempt = 1; attempt <= kDisplayInitAttempts; ++attempt) {
+        display = std::make_unique<StopWatchDisplay>();
+        if (display->init() && display_te_active()) break;
         display.reset();
-        return false;
+        ESP_LOGW(kTag, "display did not start scanning, retry %d/%d", attempt,
+                 kDisplayInitAttempts);
+        if (attempt == kDisplayInitAttempts || !reset_display()) return false;
     }
     lv_init();
     auto* lv_display = lv_display_create(display->width(), display->height());
