@@ -48,8 +48,9 @@ constexpr gpio_num_t kButtonB = GPIO_NUM_1;
 constexpr gpio_num_t kSpeakerPa = GPIO_NUM_14;
 constexpr gpio_num_t kDisplayTe = GPIO_NUM_38;
 constexpr int kSampleRate = 44100;
-constexpr int kDisplayPowerAttempts = 3;
+constexpr int kDisplayPowerAttempts = 25;
 constexpr int kDisplayPowerReadyMs = 80;
+constexpr int kDisplayPowerSettleMs = 50;
 constexpr std::uint32_t kTeWaitMs = 30;
 constexpr std::size_t kDmaChunkBytes = 16 * 1024;
 
@@ -229,7 +230,10 @@ bool init_ioe() {
     for (int attempt = 1; attempt <= kDisplayPowerAttempts; ++attempt) {
         ioe->digitalWrite(M5IOE1_PIN_8, 1);
         vTaskDelay(pdMS_TO_TICKS(kDisplayPowerReadyMs));
-        if (ioe->digitalRead(M5IOE1_PIN_8) == 1) return true;
+        if (ioe->digitalRead(M5IOE1_PIN_8) == 1) {
+            vTaskDelay(pdMS_TO_TICKS(kDisplayPowerSettleMs));
+            return true;
+        }
         ESP_LOGW(kTag, "display power enable retry %d/%d", attempt, kDisplayPowerAttempts);
     }
     ESP_LOGE(kTag, "display power rail did not enable");
