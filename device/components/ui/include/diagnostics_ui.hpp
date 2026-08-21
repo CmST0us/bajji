@@ -40,6 +40,7 @@ private:
     void select_category(std::uint32_t index);
     void select_type(std::uint32_t index);
     void save_settings();
+    void cancel_loading();
     void toggle_mode(const WallpaperStatus& wallpaper);
     void refresh_image(const WallpaperStatus& wallpaper);
 
@@ -47,6 +48,7 @@ private:
     static void category_row_clicked(_lv_event_t* event);
     static void type_row_clicked(_lv_event_t* event);
     static void save_clicked(_lv_event_t* event);
+    static void cancel_clicked(_lv_event_t* event);
     static void category_choice_clicked(_lv_event_t* event);
     static void type_choice_clicked(_lv_event_t* event);
 

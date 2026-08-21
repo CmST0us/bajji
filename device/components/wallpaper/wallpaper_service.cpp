@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "wallpaper_service.hpp"
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -54,7 +55,10 @@ struct HeaderState {
 
 WallpaperStatus status;
 SemaphoreHandle_t status_mutex;
+SemaphoreHandle_t client_mutex;
 QueueHandle_t command_queue;
+esp_http_client_handle_t active_client;
+std::atomic_bool cancel_requested{};
 bool started;
 
 const char* image_path(wallpaper_media_format_t format) {
@@ -156,6 +160,7 @@ bool secure_redirect(const char* location) {
 }
 
 esp_err_t http_event(esp_http_client_event_t* event) {
+    if (cancel_requested.load()) return ESP_FAIL;
     auto* header = static_cast<HeaderState*>(event->user_data);
     switch (event->event_id) {
         case HTTP_EVENT_ON_STATUS_CODE:
@@ -266,8 +271,18 @@ esp_err_t download_image(const char* url, wallpaper_media_info_t* info) {
     }
     esp_http_client_set_header(client, "Accept", "image/webp,image/gif,image/png,image/jpeg;q=0.9");
     esp_http_client_set_header(client, "Accept-Encoding", "identity");
-    esp_err_t result = esp_http_client_perform(client);
-    const int code = esp_http_client_get_status_code(client);
+    if (xSemaphoreTake(client_mutex, portMAX_DELAY) == pdTRUE) {
+        active_client = client;
+        xSemaphoreGive(client_mutex);
+    }
+    esp_err_t result = cancel_requested.load() ? ESP_ERR_INVALID_STATE
+                                                : esp_http_client_perform(client);
+    int code = 0;
+    if (xSemaphoreTake(client_mutex, portMAX_DELAY) == pdTRUE) {
+        code = esp_http_client_get_status_code(client);
+        active_client = nullptr;
+        xSemaphoreGive(client_mutex);
+    }
     esp_http_client_cleanup(client);
     if (std::fclose(file) != 0 && result == ESP_OK) result = ESP_FAIL;
     if (result == ESP_OK) result = header.error;
@@ -276,6 +291,7 @@ esp_err_t download_image(const char* url, wallpaper_media_info_t* info) {
         result = ESP_ERR_INVALID_RESPONSE;
     }
     if (result == ESP_OK && header.total == 0) result = ESP_ERR_INVALID_SIZE;
+    if (cancel_requested.load()) result = ESP_ERR_INVALID_STATE;
     if (result == ESP_OK) result = validate_image_file(kImageTemp, info);
     if (result != ESP_OK) {
         std::remove(kImageTemp);
@@ -361,6 +377,7 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
         copy_text(value.state, sizeof(value.state), value.has_cache ? "正在换一张…" : "正在获取图片");
     });
     esp_err_t result = download_image(url, info);
+    if (cancel_requested.load()) result = ESP_ERR_INVALID_STATE;
     const char* target = result == ESP_OK ? image_path(info->format) : nullptr;
     if (result == ESP_OK && !target) result = ESP_ERR_NOT_SUPPORTED;
     if (result == ESP_OK) {
@@ -396,6 +413,16 @@ void finish_request(esp_err_t result, const wallpaper_media_info_t& info) {
     });
 }
 
+void finish_cancelled() {
+    std::remove(kImageTemp);
+    update_status([](WallpaperStatus& value) {
+        value.busy = false;
+        value.request_revision++;
+        value.last_error = ESP_OK;
+        copy_text(value.state, sizeof(value.state), "请求已取消");
+    });
+}
+
 void worker(void*) {
     WallpaperStatus initial = wallpaper_snapshot();
     bool pending_refresh = initial.settings.configured && !initial.has_cache;
@@ -403,6 +430,10 @@ void worker(void*) {
         QueuedCommand command;
         const bool received =
             xQueueReceive(command_queue, &command, pdMS_TO_TICKS(1000)) == pdTRUE;
+        if (cancel_requested.exchange(false)) {
+            pending_refresh = false;
+            finish_cancelled();
+        }
         if (received && command.type == Command::save_settings) {
             const esp_err_t result = persist_settings(command.settings);
             update_status([&](WallpaperStatus& value) {
@@ -444,7 +475,8 @@ void worker(void*) {
         update_status([](WallpaperStatus& value) { value.busy = true; });
         wallpaper_media_info_t info{};
         const esp_err_t result = perform_update(current.settings, &info);
-        finish_request(result, info);
+        if (cancel_requested.exchange(false)) finish_cancelled();
+        else finish_request(result, info);
         pending_refresh = false;
     }
 }
@@ -459,8 +491,9 @@ esp_err_t enqueue(const QueuedCommand& command) {
 esp_err_t wallpaper_start() {
     if (started) return ESP_OK;
     status_mutex = xSemaphoreCreateMutex();
+    client_mutex = xSemaphoreCreateMutex();
     command_queue = xQueueCreate(6, sizeof(QueuedCommand));
-    if (!status_mutex || !command_queue) return ESP_ERR_NO_MEM;
+    if (!status_mutex || !client_mutex || !command_queue) return ESP_ERR_NO_MEM;
     default_settings(&status.settings);
     copy_text(status.state, sizeof(status.state), "正在启动…");
     const esp_err_t settings_result = load_settings();
@@ -488,6 +521,18 @@ void wallpaper_set_online(bool online_and_time_valid) {
 }
 
 void wallpaper_request_refresh() { enqueue({.type = Command::refresh}); }
+
+esp_err_t wallpaper_cancel_request() {
+    cancel_requested.store(true);
+    update_status([](WallpaperStatus& value) {
+        value.busy = false;
+        copy_text(value.state, sizeof(value.state), "正在取消…");
+    });
+    if (!client_mutex || xSemaphoreTake(client_mutex, 0) != pdTRUE) return ESP_OK;
+    const esp_err_t result = active_client ? esp_http_client_cancel_request(active_client) : ESP_OK;
+    xSemaphoreGive(client_mutex);
+    return result == ESP_ERR_INVALID_STATE ? ESP_OK : result;
+}
 
 esp_err_t wallpaper_save_settings(const char* category, const char* type) {
     if (!category || !type || !wallpaper_settings_valid(category, type)) return ESP_ERR_INVALID_ARG;

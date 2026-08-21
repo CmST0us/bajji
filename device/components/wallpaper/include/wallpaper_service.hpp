@@ -35,6 +35,7 @@ struct WallpaperStatus {
 esp_err_t wallpaper_start();
 void wallpaper_set_online(bool online_and_time_valid);
 void wallpaper_request_refresh();
+esp_err_t wallpaper_cancel_request();
 esp_err_t wallpaper_save_settings(const char* category, const char* type);
 esp_err_t wallpaper_set_display_mode(DisplayMode mode);
 WallpaperStatus wallpaper_snapshot();

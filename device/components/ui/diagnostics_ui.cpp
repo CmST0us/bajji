@@ -438,8 +438,14 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             label(parameters, text, 0, 10, 188, &lv_font_montserrat_14, kAccent);
             loading_state_ = label(root_, wallpaper.online ? "支持 PNG · JPG · GIF · WebP"
                                                             : "通过 BLE 使用手机网络",
-                                   kSafeX, 397, kSafeWidth,
+                                   kSafeX, 376, kSafeWidth,
                                    kBodyFont, kSecondary);
+            auto* cancel = object(root_, 153, 402, 160, 48, kSurface, 24);
+            lv_obj_set_style_border_width(cancel, 1, 0);
+            lv_obj_set_style_border_color(cancel, color(kSecondary), 0);
+            lv_obj_add_flag(cancel, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(cancel, cancel_clicked, LV_EVENT_CLICKED, this);
+            label(cancel, "取消", 0, 14, 160, kBodyFont, kPrimary);
             break;
         }
         case Page::image:
@@ -659,6 +665,12 @@ void ProductUI::save_settings() {
     show(Page::loading, latest_wallpaper_);
 }
 
+void ProductUI::cancel_loading() {
+    wallpaper_cancel_request();
+    latest_wallpaper_.busy = false;
+    show(Page::settings, latest_wallpaper_);
+}
+
 void ProductUI::toggle_mode(const WallpaperStatus& wallpaper) {
     display_mode_ = display_mode_ == DisplayMode::cover ? DisplayMode::fit_blur : DisplayMode::cover;
     wallpaper_set_display_mode(display_mode_);
@@ -785,6 +797,9 @@ void ProductUI::type_row_clicked(lv_event_t* event) {
 }
 void ProductUI::save_clicked(lv_event_t* event) {
     static_cast<ProductUI*>(lv_event_get_user_data(event))->save_settings();
+}
+void ProductUI::cancel_clicked(lv_event_t* event) {
+    static_cast<ProductUI*>(lv_event_get_user_data(event))->cancel_loading();
 }
 void ProductUI::category_choice_clicked(lv_event_t* event) {
     const auto index = static_cast<std::uint32_t>(lv_obj_get_index(lv_event_get_target_obj(event)));
