@@ -202,6 +202,7 @@ esp_err_t http_event(esp_http_client_event_t* event) {
                 break;
             }
             header->total += static_cast<size_t>(event->data_len);
+            vTaskDelay(1);
             break;
         }
         default:
