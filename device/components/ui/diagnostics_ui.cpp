@@ -11,6 +11,8 @@
 #include "misc/cache/instance/lv_image_cache.h"
 #include "webp/demux.h"
 
+extern "C" const lv_font_t bajji_font_16;
+
 namespace bajji {
 namespace {
 
@@ -32,6 +34,7 @@ constexpr std::uint32_t kWarning = 0xffc857;
 constexpr std::uint32_t kError = 0xff6b76;
 constexpr std::uint32_t kButtonA = 0xffc52f;
 constexpr std::uint32_t kButtonB = 0x2f8fff;
+const lv_font_t* const kBodyFont = &bajji_font_16;
 
 struct Choice {
     const char* value;
@@ -81,7 +84,7 @@ lv_obj_t* object(lv_obj_t* parent, int x, int y, int width, int height,
 }
 
 lv_obj_t* label(lv_obj_t* parent, const char* text, int x, int y, int width,
-                const lv_font_t* font = &lv_font_source_han_sans_sc_16_cjk,
+                const lv_font_t* font = kBodyFont,
                 std::uint32_t text_color = kPrimary, lv_text_align_t align = LV_TEXT_ALIGN_CENTER) {
     auto* value = lv_label_create(parent);
     lv_obj_set_pos(value, x, y);
@@ -100,14 +103,14 @@ lv_obj_t* status_pill(lv_obj_t* parent, const char* text, std::uint32_t tint, in
     lv_obj_set_style_border_color(pill, color(tint), 0);
     auto* dot = object(pill, 25, 19, 10, 10, tint, 5);
     (void)dot;
-    label(pill, text, 44, 14, 92, &lv_font_source_han_sans_sc_16_cjk, tint,
+    label(pill, text, 44, 14, 92, kBodyFont, tint,
           LV_TEXT_ALIGN_LEFT);
     return pill;
 }
 
 lv_obj_t* title(lv_obj_t* parent, const char* text, int y) {
     auto* value = label(parent, text, kSafeX, y, kSafeWidth,
-                        &lv_font_source_han_sans_sc_16_cjk, kPrimary);
+                        kBodyFont, kPrimary);
     lv_obj_set_style_text_letter_space(value, 1, 0);
     return value;
 }
@@ -133,9 +136,9 @@ lv_obj_t* setting_row(lv_obj_t* parent, int y, const char* name, lv_obj_t** valu
     lv_obj_set_style_border_color(row, color(kOverlay), 0);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, context);
-    label(row, name, 20, 10, 240, &lv_font_source_han_sans_sc_16_cjk, kSecondary,
+    label(row, name, 20, 10, 240, kBodyFont, kSecondary,
           LV_TEXT_ALIGN_LEFT);
-    *value_out = label(row, "", 20, 38, 260, &lv_font_source_han_sans_sc_16_cjk, kPrimary,
+    *value_out = label(row, "", 20, 38, 260, kBodyFont, kPrimary,
                        LV_TEXT_ALIGN_LEFT);
     label(row, "›", 282, 17, 28, &lv_font_montserrat_28, kAccent);
     return row;
@@ -332,9 +335,9 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             label(root_, "!", 191, 134, 84, &lv_font_montserrat_48, kWarning);
             title(root_, "先与手机配对", 234);
             label(root_, "请打开手机端 Bajji\n发起设备配对请求", 93, 280, 280,
-                  &lv_font_source_han_sans_sc_16_cjk, kSecondary);
+                  kBodyFont, kSecondary);
             label(root_, "手机需联网 · 等待配对请求", 100, 364, 266,
-                  &lv_font_source_han_sans_sc_16_cjk, kWarning);
+                  kBodyFont, kWarning);
             break;
         case Page::pairing_code: {
             auto* modal = object(root_, 69, 93, kSafeWidth, 280, kOverlay, 24);
@@ -344,14 +347,14 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             lv_obj_set_style_shadow_offset_y(modal, 12, 0);
             lv_obj_set_style_shadow_opa(modal, LV_OPA_30, 0);
             label(modal, "在手机上输入配对码", 0, 38, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kPrimary);
+                  kBodyFont, kPrimary);
             label(modal, "配对码将在 5 分钟后失效", 0, 76, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kSecondary);
+                  kBodyFont, kSecondary);
             pairing_code_ = label(modal, "--- ---", 0, 112, kSafeWidth,
                                   &lv_font_montserrat_48, kAccent);
             lv_obj_set_style_text_letter_space(pairing_code_, 4, 0);
             label(modal, "等待手机确认…", 0, 214, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kAccent);
+                  kBodyFont, kAccent);
             if (passkey) lv_label_set_text_fmt(pairing_code_, "%03" PRIu32 " %03" PRIu32,
                                                 passkey / 1000, passkey % 1000);
             break;
@@ -363,9 +366,9 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             object(modal, 122, 34, 84, 84, kSurface, 42);
             label(modal, LV_SYMBOL_OK, 122, 55, 84, &lv_font_montserrat_32, kSuccess);
             label(modal, "配对成功", 0, 144, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kPrimary);
+                  kBodyFont, kPrimary);
             label(modal, "正在进入图片设置", 0, 190, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kSuccess);
+                  kBodyFont, kSuccess);
             break;
         }
         case Page::settings: {
@@ -384,9 +387,9 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(save, save_clicked, LV_EVENT_CLICKED, this);
             label(save, "保存并加载", 0, 16, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kBase);
+                  kBodyFont, kBase);
             label(root_, "参数保存在设备本地", kSafeX, 399, kSafeWidth,
-                  &lv_font_source_han_sans_sc_16_cjk, kSuccess);
+                  kBodyFont, kSuccess);
             update_settings_labels();
             break;
         }
@@ -413,14 +416,14 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                     lv_obj_set_style_border_color(row, color(kAccent), 0);
                 }
                 label(row, choices[i].label, 16, 14, 260,
-                      &lv_font_source_han_sans_sc_16_cjk, kPrimary, LV_TEXT_ALIGN_LEFT);
+                      kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
                 if (selected) label(row, LV_SYMBOL_OK, 280, 14, 32, &lv_font_montserrat_18, kAccent);
                 lv_obj_add_event_cb(row, next == Page::category ? category_choice_clicked
                                                                 : type_choice_clicked,
                                     LV_EVENT_CLICKED, this);
             }
             label(root_, next == Page::category ? "向上滑动查看更多" : "选择后自动返回",
-                  kSafeX, 397, kSafeWidth, &lv_font_source_han_sans_sc_16_cjk,
+                  kSafeX, 397, kSafeWidth, kBodyFont,
                   next == Page::category ? kSecondary : kAccent);
             break;
         }
@@ -436,7 +439,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             loading_state_ = label(root_, wallpaper.online ? "支持 PNG · JPG · GIF · WebP"
                                                             : "通过 BLE 使用手机网络",
                                    kSafeX, 397, kSafeWidth,
-                                   &lv_font_source_han_sans_sc_16_cjk, kSecondary);
+                                   kBodyFont, kSecondary);
             break;
         }
         case Page::image:
@@ -448,16 +451,16 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             title(root_, "无法获取图片", 198);
             label(root_, wallpaper.online ? "手机网络请求失败\n设备中也没有缓存图片"
                                           : "手机网络不可用\n设备中也没有缓存图片",
-                  83, 246, 300, &lv_font_source_han_sans_sc_16_cjk, kSecondary);
+                  83, 246, 300, kBodyFont, kSecondary);
             {
                 auto* retry = object(root_, 133, 330, 200, 48, kSurface, 24);
                 auto* key = object(retry, 8, 8, 40, 32, kButtonB, 16);
                 label(key, "B", 0, 8, 40, &lv_font_montserrat_14, kPrimary);
                 label(retry, "刷新图片", 60, 14, 124,
-                      &lv_font_source_han_sans_sc_16_cjk, kPrimary, LV_TEXT_ALIGN_LEFT);
+                      kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
             }
             label(root_, "请检查手机网络与蓝牙连接", 100, 397, 266,
-                  &lv_font_source_han_sans_sc_16_cjk, kError);
+                  kBodyFont, kError);
             break;
     }
 }
@@ -545,14 +548,14 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     refresh_overlay_ = object(root_, 126, 352, 214, 48, kOverlay, 24);
     spinner(refresh_overlay_, 10, 8, 32);
     label(refresh_overlay_, "正在换一张…", 52, 14, 146,
-          &lv_font_source_han_sans_sc_16_cjk, kPrimary, LV_TEXT_ALIGN_LEFT);
+          kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
     if (!wallpaper.busy) lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
 
     cache_error_ = object(root_, 83, 304, 300, 48, kOverlay, 24);
     lv_obj_set_style_border_width(cache_error_, 1, 0);
     lv_obj_set_style_border_color(cache_error_, color(kError), 0);
     cache_error_text_ = label(cache_error_, "网络失败 · 显示缓存", 0, 14, 300,
-                              &lv_font_source_han_sans_sc_16_cjk, kPrimary);
+                              kBodyFont, kPrimary);
     lv_obj_add_flag(cache_error_, LV_OBJ_FLAG_HIDDEN);
 
     hold_overlay_ = object(root_, 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
@@ -570,13 +573,13 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     lv_obj_remove_flag(hold_arc_, LV_OBJ_FLAG_CLICKABLE);
     label(hold_overlay_, "A+B", 163, 159, 140, &lv_font_montserrat_20, kPrimary);
     label(hold_overlay_, "长按 1 秒", 163, 191, 140,
-          &lv_font_source_han_sans_sc_16_cjk, kSecondary);
+          kBodyFont, kSecondary);
     hold_ms_ = label(hold_overlay_, "0 / 1000 ms", 0, 278, kDisplay,
                      &lv_font_montserrat_14, kAccent);
     label(hold_overlay_, "继续按住返回设置", 69, 316, 328,
-          &lv_font_source_han_sans_sc_16_cjk, kPrimary);
+          kBodyFont, kPrimary);
     label(hold_overlay_, "松开任意按键即可取消", 69, 360, 328,
-          &lv_font_source_han_sans_sc_16_cjk, kSecondary);
+          kBodyFont, kSecondary);
     lv_obj_add_flag(hold_overlay_, LV_OBJ_FLAG_HIDDEN);
     show_controls();
 }
