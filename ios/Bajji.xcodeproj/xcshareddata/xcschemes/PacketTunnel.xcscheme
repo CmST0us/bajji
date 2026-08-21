@@ -58,8 +58,12 @@
       allowLocationSimulation = "YES"
       launchAutomaticallySubstyle = "2"
       queueDebuggingEnableBacktraceRecording = "Yes">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      <RemoteRunnable
+         runnableDebuggingMode = "0"
+         BundleIdentifier = "com.eric3u.bajji"
+         RemotePath = "/var/containers/Bundle/Application/644C5CFE-E1EB-40AA-9BA1-13FDD99B06A7/Bajji.app">
+      </RemoteRunnable>
+      <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "5AEAF4B713E175790C1EB32A"
@@ -67,7 +71,7 @@
             BlueprintName = "Bajji"
             ReferencedContainer = "container:Bajji.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
