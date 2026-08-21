@@ -17,10 +17,98 @@ index dc27d6a95..fe1556a50 100644
  /  1: Enable
  */
 diff --git a/src/widgets/gif/lv_gif.c b/src/widgets/gif/lv_gif.c
-index be6ec1867..c9de3b23e 100644
+index be6ec1867..bc2649d07 100644
 --- a/src/widgets/gif/lv_gif.c
 +++ b/src/widgets/gif/lv_gif.c
-@@ -563,6 +563,11 @@ static void gif_initialize(lv_gif_t * gifobj)
+@@ -310,30 +310,20 @@ static inline void gif_blend_to_rgb565(GIFDRAW * pDraw, lv_draw_buf_t * draw_buf
+                                                                * 2));
+ 
+     if(pDraw->ucHasTransparency) {
+-        if(pDraw->ucDisposalMethod == 2) {
+-            /* Disposal 2: Replace transparent pixels with background color */
+-            while(src < end) {
+-                pixel = *src++;
+-                if(pixel == pDraw->ucTransparent) {
+-                    pixel = pDraw->ucBackground;
+-                }
+-                *dst++ = pal[pixel];
+-            }
+-        }
+-        else {
+-            /* Disposal 0,1,3: Replace transparent pixels with background color to maintain position
+-             * The gif_disposal_last_frame function handles the actual background clearing
+-            */
+-            uint16_t bg_color = pal[pDraw->ucBackground];
+-            while(src < end) {
+-                pixel = *src++;
+-                if(pixel == pDraw->ucTransparent) {
+-                    *dst++ = bg_color;
+-                }
+-                else {
+-                    *dst++ = pal[pixel];
+-                }
++        /* A transparent pixel means "keep whatever the canvas already holds": the previous
++         * frame, or the background that gif_disposal_last_frame() painted just before this
++         * frame for disposal method 2. Writing pal[ucBackground] over it instead destroys
++         * the composited image, and since ucBackground indexes the global header while pal
++         * is the frame's local colour table, the colour it lands on is arbitrary. Most
++         * frames of an animated GIF are deltas whose unchanged pixels are transparent, so
++         * this showed up as multi-coloured streaks across the animation.
++         * The ARGB8888 path above never had the bug: it only clears alpha. */
++        while(src < end) {
++            pixel = *src++;
++            if(pixel != pDraw->ucTransparent) {
++                *dst = pal[pixel];
+             }
++            dst++;
+         }
+     }
+     else {
+@@ -357,38 +347,15 @@ static inline void gif_blend_to_rgb888(GIFDRAW * pDraw, lv_draw_buf_t * draw_buf
+     uint8_t * dst = (uint8_t *)draw_buf->data + ((pDraw->iY + pDraw->y) * draw_buf->header.stride + pDraw->iX * 3);
+ 
+     if(pDraw->ucHasTransparency) {
+-        if(pDraw->ucDisposalMethod == 2) {
+-            /* Disposal 2: Replace transparent pixels with background color */
+-            while(src < end) {
+-                pixel = *src++;
+-                if(pixel == pDraw->ucTransparent) {
+-                    pixel = pDraw->ucBackground;
+-                }
++        /* Same as the RGB565 path: a transparent pixel keeps the canvas content. */
++        while(src < end) {
++            pixel = *src++;
++            if(pixel != pDraw->ucTransparent) {
+                 dst[0] = pal[(pixel * 3) + 2];
+                 dst[1] = pal[(pixel * 3) + 1];
+                 dst[2] = pal[(pixel * 3) + 0];
+-                dst += 3;
+-            }
+-        }
+-        else {
+-            /* Disposal 0,1,3: Replace transparent pixels with background color to maintain position */
+-            uint8_t bg_r = pal[(pDraw->ucBackground * 3) + 2];
+-            uint8_t bg_g = pal[(pDraw->ucBackground * 3) + 1];
+-            uint8_t bg_b = pal[(pDraw->ucBackground * 3) + 0];
+-            while(src < end) {
+-                pixel = *src++;
+-                if(pixel == pDraw->ucTransparent) {
+-                    dst[0] = bg_r;
+-                    dst[1] = bg_g;
+-                    dst[2] = bg_b;
+-                }
+-                else {
+-                    dst[0] = pal[(pixel * 3) + 2];
+-                    dst[1] = pal[(pixel * 3) + 1];
+-                    dst[2] = pal[(pixel * 3) + 0];
+-                }
+-                dst += 3;
+             }
++            dst += 3;
+         }
+     }
+     else {
+@@ -563,6 +530,11 @@ static void gif_initialize(lv_gif_t * gifobj)
          return;
      }
  

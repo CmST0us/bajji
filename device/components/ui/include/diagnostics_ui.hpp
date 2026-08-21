@@ -82,6 +82,7 @@ private:
     void* webp_player_{};
     void* still_image_{};  // lv_draw_buf_t* holding the pre-decoded still wallpaper
     void* gif_source_{};   // GifSource* holding the GIF bytes read into RAM
+    void* blurred_background_{};  // lv_draw_buf_t* holding the pre-blurred backdrop
     WallpaperSettings draft_{};
     ble_link_status_t latest_link_{};
     DisplayMode display_mode_{DisplayMode::cover};

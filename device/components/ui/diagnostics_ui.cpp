@@ -353,6 +353,82 @@ void destroy_gif_source(GifSource* source) {
     delete source;
 }
 
+
+// The blurred backdrop sits behind the wallpaper, larger than the screen so the blur's
+// edge falloff stays out of sight.
+constexpr int kBackdrop = 520;
+constexpr int kBackdropOffset = -27;
+
+// Render the backdrop once instead of leaving the blur as a style on a live widget.
+// LVGL expands any invalidation that touches a blurred widget to cover the whole of it
+// (lv_obj_pos.c:1017 blur_walk_cb), so with a style blur every animation frame - and every
+// step of the controls fade - drags a full 520x520 IIR blur along with it. Pre-rendering
+// turns that per-frame cost into a one-off at page setup.
+lv_draw_buf_t* blur_backdrop(const lv_draw_buf_t* source) {
+    if (!source || !source->header.w || !source->header.h) return nullptr;
+    auto* buffer = lv_draw_buf_create(kBackdrop, kBackdrop, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
+    if (!buffer) return nullptr;
+    lv_draw_buf_clear(buffer, nullptr);  // lv_draw_buf_create() leaves the pixels undefined
+    auto* canvas = lv_canvas_create(lv_screen_active());
+    if (!canvas) {
+        lv_draw_buf_destroy(buffer);
+        return nullptr;
+    }
+    lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
+    lv_canvas_set_draw_buf(canvas, buffer);
+
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+
+    // LV_IMAGE_ALIGN_COVER by hand: scale so the source fills the square, then centre it.
+    const std::int32_t width = static_cast<std::int32_t>(source->header.w);
+    const std::int32_t height = static_cast<std::int32_t>(source->header.h);
+    const std::int32_t scale =
+        LV_MAX((kBackdrop * LV_SCALE_NONE + width - 1) / width,
+               (kBackdrop * LV_SCALE_NONE + height - 1) / height);
+    lv_draw_image_dsc_t image_dsc;
+    lv_draw_image_dsc_init(&image_dsc);
+    image_dsc.src = source;
+    image_dsc.scale_x = scale;
+    image_dsc.scale_y = scale;
+    image_dsc.pivot.x = 0;  // scale away from the top left so coords place the result directly
+    image_dsc.pivot.y = 0;
+    const std::int32_t x = (kBackdrop - width * scale / LV_SCALE_NONE) / 2;
+    const std::int32_t y = (kBackdrop - height * scale / LV_SCALE_NONE) / 2;
+    const lv_area_t coords{x, y, x + width - 1, y + height - 1};
+    lv_draw_image(&layer, &image_dsc, &coords);
+
+    lv_draw_blur_dsc_t blur_dsc;
+    lv_draw_blur_dsc_init(&blur_dsc);
+    blur_dsc.base.layer = &layer;
+    blur_dsc.blur_radius = 24;
+    blur_dsc.quality = LV_BLUR_QUALITY_PRECISION;
+    const lv_area_t full{0, 0, kBackdrop - 1, kBackdrop - 1};
+    lv_draw_blur(&layer, &blur_dsc, &full);
+
+    lv_canvas_finish_layer(canvas, &layer);
+    lv_obj_delete(canvas);
+    return buffer;
+}
+
+// Decode just the first frame of a GIF so the backdrop can be built from it. The widget is
+// throwaway; lv_gif renders frame 0 synchronously inside lv_gif_set_src().
+#if LV_USE_GIF
+lv_draw_buf_t* blur_backdrop_from_gif(const GifSource* source, const char* path) {
+    auto* probe = lv_gif_create(lv_screen_active());
+    if (!probe) return nullptr;
+    lv_obj_add_flag(probe, LV_OBJ_FLAG_HIDDEN);
+    lv_gif_set_color_format(probe, LV_COLOR_FORMAT_RGB565);
+    if (source) lv_gif_set_src(probe, &source->dsc);
+    else lv_gif_set_src(probe, path);
+    lv_gif_pause(probe);
+    const auto* frame = static_cast<const lv_draw_buf_t*>(lv_image_get_src(probe));
+    lv_draw_buf_t* backdrop = frame ? blur_backdrop(frame) : nullptr;
+    lv_obj_delete(probe);
+    return backdrop;
+}
+#endif
+
 }  // namespace
 
 void ProductUI::create(const ble_link_status_t& link, const WallpaperStatus& wallpaper) {
