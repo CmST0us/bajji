@@ -817,10 +817,17 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             spinner(root_, 167, 124, 132);
             title(root_, wallpaper.online ? "正在获取图片" : "等待手机连接", 284);
             auto* parameters = object(root_, 139, 334, 188, 36, kOverlay, 18);
-            char text[48];
-            std::snprintf(text, sizeof(text), "%s%s%s", wallpaper.settings.category,
-                          wallpaper.settings.type[0] ? " · " : "", wallpaper.settings.type);
-            label(parameters, text, 0, 10, 188, &lv_font_montserrat_14, kAccent);
+            lv_obj_set_flex_flow(parameters, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(parameters, LV_FLEX_ALIGN_CENTER,
+                                  LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(parameters, 6, 0);
+            label(parameters, wallpaper.settings.category, 0, 0, LV_SIZE_CONTENT,
+                  &lv_font_montserrat_14, kAccent);
+            if (wallpaper.settings.type[0]) {
+                object(parameters, 0, 0, 4, 4, kAccent, 2);
+                label(parameters, wallpaper.settings.type, 0, 0, LV_SIZE_CONTENT,
+                      &lv_font_montserrat_14, kAccent);
+            }
             loading_state_ = label(root_, wallpaper.online ? "支持 PNG · JPG · GIF · WebP"
                                                             : "通过 BLE 使用手机网络",
                                    kSafeX, 376, kSafeWidth,
