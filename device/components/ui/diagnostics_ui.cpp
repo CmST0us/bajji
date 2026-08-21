@@ -288,6 +288,7 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
         add_image(true);
         auto* veil = object(parent, 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
         lv_obj_set_style_bg_opa(veil, LV_OPA_20, 0);
+        lv_obj_remove_flag(veil, LV_OBJ_FLAG_CLICKABLE);
     }
     add_image(false);
     if (animated) player->timer = lv_timer_create(webp_timer, 16, player);
@@ -672,6 +673,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
             add_media(true);
             auto* veil = object(root_, 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
             lv_obj_set_style_bg_opa(veil, LV_OPA_20, 0);
+            lv_obj_remove_flag(veil, LV_OBJ_FLAG_CLICKABLE);
         }
         add_media(false);
     }
@@ -745,12 +747,20 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
 
 void ProductUI::show_controls() {
     if (!controls_) return;
+
+    controls_deadline_ms_ = now_ms() + kControlsDurationMs;
+    if (controls_visible_) {
+        lv_anim_delete(controls_, nullptr);
+        lv_obj_set_style_opa(controls_, LV_OPA_COVER, 0);
+        controls_hiding_ = false;
+        return;
+    }
+
     lv_obj_remove_flag(controls_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_opa(controls_, LV_OPA_TRANSP, 0);
     lv_obj_fade_in(controls_, kFadeMs, 0);
     controls_visible_ = true;
     controls_hiding_ = false;
-    controls_deadline_ms_ = now_ms() + kControlsDurationMs;
 }
 
 void ProductUI::hide_hold() {
