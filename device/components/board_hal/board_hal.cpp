@@ -51,6 +51,8 @@ constexpr int kSampleRate = 44100;
 constexpr int kDisplayPowerAttempts = 25;
 constexpr int kDisplayPowerReadyMs = 80;
 constexpr int kDisplayPowerSettleMs = 50;
+constexpr int kIoeWriteAttempts = 5;
+constexpr int kIoeWriteRetryMs = 2;
 // One buffer tall enough for the whole screen: LVGL renders each invalidated area in a
 // single pass, so there are no chunk seams, while the panel still pushes only the dirty
 // rect. The flush is synchronous, so a second buffer would buy nothing.
@@ -209,13 +211,26 @@ bool init_pmic() {
 
 // Pulse the OLED (IO5) and touch (IO4) reset lines together, as M5GFX.cpp:1916-1920 does.
 // Without this the CO5300 keeps its previous session's state across a soft reset.
-void reset_display_and_touch() {
-    ioe->digitalWrite(M5IOE1_PIN_4, 0);
-    ioe->digitalWrite(M5IOE1_PIN_5, 0);
+bool write_ioe_verified(std::uint8_t pin, std::uint8_t value) {
+    for (int attempt = 1; attempt <= kIoeWriteAttempts; ++attempt) {
+        m5ioe1_err_t result = M5IOE1_FAIL;
+        ioe->digitalWriteWithRes(pin, value, &result);
+        if (result == M5IOE1_OK) return true;
+        ESP_LOGW(kTag, "IO expander pin %u write retry %d/%d", pin, attempt,
+                 kIoeWriteAttempts);
+        vTaskDelay(pdMS_TO_TICKS(kIoeWriteRetryMs));
+    }
+    return false;
+}
+
+bool reset_display_and_touch() {
+    if (!write_ioe_verified(M5IOE1_PIN_4, 0) ||
+        !write_ioe_verified(M5IOE1_PIN_5, 0)) return false;
     vTaskDelay(pdMS_TO_TICKS(8));
-    ioe->digitalWrite(M5IOE1_PIN_4, 1);
-    ioe->digitalWrite(M5IOE1_PIN_5, 1);
+    if (!write_ioe_verified(M5IOE1_PIN_4, 1) ||
+        !write_ioe_verified(M5IOE1_PIN_5, 1)) return false;
     vTaskDelay(pdMS_TO_TICKS(2));
+    return true;
 }
 
 bool init_ioe() {
@@ -250,8 +265,9 @@ bool init_ioe() {
         vTaskDelay(pdMS_TO_TICKS(kDisplayPowerReadyMs));
         if (ioe->digitalRead(M5IOE1_PIN_8) == 1) {
             vTaskDelay(pdMS_TO_TICKS(kDisplayPowerSettleMs));
-            reset_display_and_touch();
-            return true;
+            if (reset_display_and_touch()) return true;
+            ESP_LOGE(kTag, "display reset lines did not deassert");
+            return false;
         }
         ESP_LOGW(kTag, "display power enable retry %d/%d", attempt, kDisplayPowerAttempts);
     }
@@ -479,8 +495,12 @@ esp_err_t BoardHal::init() {
     status_.pmic = init_pmic() ? Health::ok : Health::error;
     status_.io_expander = init_ioe() ? Health::ok : Health::error;
     status_.motor = ioe ? Health::ok : Health::error;
-    status_.display = init_display_and_lvgl() ? Health::ok : Health::error;
-    status_.touch = init_touch() ? Health::ok : Health::error;
+    status_.display = status_.io_expander == Health::ok && init_display_and_lvgl()
+                          ? Health::ok
+                          : Health::error;
+    status_.touch = status_.io_expander == Health::ok && init_touch()
+                        ? Health::ok
+                        : Health::error;
     status_.audio = init_audio() ? Health::ok : Health::error;
     status_.imu = init_imu() ? Health::ok : Health::error;
     status_.rtc = init_rtc() ? Health::ok : Health::error;
