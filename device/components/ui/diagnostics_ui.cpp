@@ -8,6 +8,7 @@
 #include <new>
 
 #include "lvgl.h"
+#include "draw/lv_image_decoder_private.h"
 #include "misc/cache/instance/lv_image_cache.h"
 #include "webp/demux.h"
 
@@ -547,6 +548,43 @@ static lv_draw_buf_t* decode_still(const char* path) {
     if (!header.w || !header.h) return nullptr;
     auto* buffer = lv_draw_buf_create(header.w, header.h, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
     if (!buffer) return nullptr;
+
+    if (header.cf == LV_COLOR_FORMAT_RAW) {
+        lv_image_decoder_dsc_t decoder{};
+        lv_image_decoder_args_t args{};
+        args.no_cache = true;
+        if (lv_image_decoder_open(&decoder, path, &args) != LV_RESULT_OK) {
+            lv_draw_buf_destroy(buffer);
+            return nullptr;
+        }
+        const lv_area_t full{0, 0, static_cast<std::int32_t>(header.w) - 1,
+                             static_cast<std::int32_t>(header.h) - 1};
+        lv_area_t area{LV_COORD_MIN, LV_COORD_MIN, LV_COORD_MIN, LV_COORD_MIN};
+        bool decoded = false;
+        while (lv_image_decoder_get_area(&decoder, &full, &area) == LV_RESULT_OK) {
+            const auto* block = decoder.decoded;
+            if (!block || block->header.cf != LV_COLOR_FORMAT_RGB888) break;
+            for (std::uint32_t y = 0; y < block->header.h; ++y) {
+                auto* destination = static_cast<lv_color16_t*>(
+                    lv_draw_buf_goto_xy(buffer, area.x1, area.y1 + y));
+                const auto* source = static_cast<const std::uint8_t*>(block->data) +
+                                     y * block->header.stride;
+                for (std::uint32_t x = 0; x < block->header.w; ++x) {
+                    destination[x].red = source[x * 3U + 2] >> 3;
+                    destination[x].green = source[x * 3U + 1] >> 2;
+                    destination[x].blue = source[x * 3U] >> 3;
+                }
+            }
+            decoded = true;
+        }
+        lv_image_decoder_close(&decoder);
+        if (!decoded) {
+            lv_draw_buf_destroy(buffer);
+            return nullptr;
+        }
+        lv_draw_buf_flush_cache(buffer, nullptr);
+        return buffer;
+    }
 
     // A canvas is the supported way to render into a draw buffer; it is never shown.
     auto* canvas = lv_canvas_create(lv_screen_active());
