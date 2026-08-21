@@ -72,6 +72,10 @@ constexpr const char* kBrightnessLabels[] = {
     "30%  ·  省电", "60%  ·  推荐", "100% ·  明亮",
 };
 constexpr std::uint16_t kAutoRefreshPresets[] = {0, 1, 5, 10};
+constexpr lv_point_precise_t kChevronRight[] = {{0, 0}, {8, 8}, {0, 16}};
+constexpr lv_point_precise_t kChevronLeft[] = {{8, 0}, {0, 8}, {8, 16}};
+constexpr lv_point_precise_t kCheck[] = {{0, 8}, {6, 14}, {17, 0}};
+constexpr lv_point_precise_t kCheckLarge[] = {{0, 18}, {13, 31}, {38, 0}};
 
 lv_color_t color(std::uint32_t value) { return lv_color_hex(value); }
 std::uint32_t now_ms() { return lv_tick_get(); }
@@ -105,6 +109,19 @@ lv_obj_t* label(lv_obj_t* parent, const char* text, int x, int y, int width,
     lv_obj_set_style_text_color(value, color(text_color), 0);
     lv_obj_set_style_text_align(value, align, 0);
     return value;
+}
+
+lv_obj_t* line_icon(lv_obj_t* parent, const lv_point_precise_t* points,
+                    std::uint32_t count, int x, int y, int width,
+                    std::uint32_t tint) {
+    auto* icon = lv_line_create(parent);
+    lv_line_set_points(icon, points, count);
+    lv_obj_set_pos(icon, x, y);
+    lv_obj_set_style_line_width(icon, width, 0);
+    lv_obj_set_style_line_color(icon, color(tint), 0);
+    lv_obj_set_style_line_rounded(icon, true, 0);
+    lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    return icon;
 }
 
 lv_obj_t* status_pill(lv_obj_t* parent, const char* text, std::uint32_t tint, int y) {
@@ -175,7 +192,7 @@ lv_obj_t* setting_row(lv_obj_t* parent, int y, const char* name, lv_obj_t** valu
           LV_TEXT_ALIGN_LEFT);
     *value_out = label(row, "", 20, 22, 260, kBodyFont, kPrimary,
                        LV_TEXT_ALIGN_LEFT);
-    label(row, "›", 282, 5, 28, &lv_font_montserrat_28, kAccent);
+    line_icon(row, kChevronRight, 3, 300, 16, 3, kAccent);
     return row;
 }
 
@@ -191,8 +208,7 @@ lv_obj_t* selectable_row(lv_obj_t* parent, const char* text, bool selected,
     label(row, text, 16, (height - 20) / 2, 260, kBodyFont, kPrimary,
           LV_TEXT_ALIGN_LEFT);
     if (selected) {
-        label(row, LV_SYMBOL_OK, 280, (height - 18) / 2, 32,
-              &lv_font_montserrat_18, kAccent);
+        line_icon(row, kCheck, 3, 286, (height - 14) / 2, 3, kAccent);
     }
     lv_obj_add_event_cb(row, callback, LV_EVENT_CLICKED, context);
     return row;
@@ -209,7 +225,7 @@ lv_obj_t* back_control(lv_obj_t* parent, lv_event_cb_t callback, void* context) 
     lv_obj_set_style_shadow_opa(control, LV_OPA_50, 0);
     lv_obj_add_flag(control, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(control, callback, LV_EVENT_CLICKED, context);
-    label(control, LV_SYMBOL_LEFT, 76, 14, 36, &lv_font_montserrat_28, kBase);
+    line_icon(control, kChevronLeft, 3, 84, 20, 4, kBase);
     return control;
 }
 
@@ -606,7 +622,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             label(modal, "正在进入图片设置", 0, 112, kSafeWidth,
                   kBodyFont, kSuccess);
             object(modal, 122, 160, 84, 84, kSurface, 42);
-            label(modal, LV_SYMBOL_OK, 122, 181, 84, &lv_font_montserrat_32, kSuccess);
+            line_icon(modal, kCheckLarge, 3, 145, 184, 6, kSuccess);
             break;
         }
         case Page::settings: {

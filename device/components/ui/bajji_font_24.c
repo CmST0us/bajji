@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --no-compress --no-prefilter --bpp 4 --size 24 --font device/vendor/lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf -r 0x20-0x7f --symbols 设备设置选择分类类型配对屏幕亮度解除？定时刷新自定义间隔手机未连接正在启动先与等待获取图片无法 --format lvgl --lv-font-name bajji_font_24 -o device/components/ui/bajji_font_24.c
+ * Opts: --no-compress --no-prefilter --bpp 4 --size 24 --font device/vendor/lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf -r 0x20-0x7f --symbols 设备设置选择分类类型配对屏幕亮度解除？定时刷新自定义间隔手机未连接正在启动先与等待获取图片无法 --format lvgl --lv-font-name bajji_font_24 --lv-fallback lv_font_montserrat_24 -o device/components/ui/bajji_font_24.c
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -3284,6 +3284,7 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
 #endif
 };
 
+extern const lv_font_t lv_font_montserrat_24;
 
 
 /*-----------------
@@ -3309,7 +3310,7 @@ lv_font_t bajji_font_24 = {
 #endif
     .dsc = &font_dsc,          /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
 #if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
-    .fallback = NULL,
+    .fallback = &lv_font_montserrat_24,
 #endif
     .user_data = NULL,
 };
