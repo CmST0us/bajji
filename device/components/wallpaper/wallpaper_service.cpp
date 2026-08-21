@@ -11,7 +11,6 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_partition.h"
 #include "esp_spiffs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -336,34 +335,14 @@ void recover_cache() {
     }
 }
 
-bool partition_is_blank() {
-    const esp_partition_t* partition =
-        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
-                                 kPartition);
-    if (!partition) return false;
-    std::uint8_t buffer[256];
-    for (size_t offset = 0; offset < partition->size; offset += sizeof(buffer)) {
-        if (esp_partition_read(partition, offset, buffer, sizeof(buffer)) != ESP_OK) return false;
-        for (std::uint8_t byte : buffer) {
-            if (byte != 0xff) return false;
-        }
-    }
-    return true;
-}
-
 esp_err_t mount_cache() {
     const esp_vfs_spiffs_conf_t config = {
         .base_path = "/spiffs",
         .partition_label = kPartition,
         .max_files = 5,
-        .format_if_mount_failed = false,
+        .format_if_mount_failed = true,
     };
     esp_err_t result = esp_vfs_spiffs_register(&config);
-    if (result == ESP_FAIL && partition_is_blank()) {
-        ESP_LOGW(tag, "blank wallpaper partition; formatting once");
-        result = esp_spiffs_format(kPartition);
-        if (result == ESP_OK) result = esp_vfs_spiffs_register(&config);
-    }
     if (result == ESP_OK) recover_cache();
     update_status([&](WallpaperStatus& value) {
         value.mounted = result == ESP_OK;
