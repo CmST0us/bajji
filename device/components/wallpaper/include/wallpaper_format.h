@@ -37,8 +37,16 @@ wallpaper_format_result_t wallpaper_media_validate(const uint8_t* data, size_t s
                                                     wallpaper_media_info_t* info);
 
 int wallpaper_settings_valid(const char* category, const char* type);
-int wallpaper_build_random_url(const char* category, const char* type,
+
+// Builds the upstream random-image URL. `nonce` is appended as an ignored query parameter so
+// that every request is a distinct URL: the image proxy caches by URL, and without it a
+// "random" endpoint would keep handing back the same cached picture.
+int wallpaper_build_random_url(const char* category, const char* type, uint32_t nonce,
                                char* output, size_t output_size);
+
+// Wraps `origin` in the images.weserv.nl resizing proxy. See the notes on kProxyPrefix in
+// wallpaper_format.c for why the device fetches through it rather than directly.
+int wallpaper_build_proxy_url(const char* origin, char* output, size_t output_size);
 
 #ifdef __cplusplus
 }

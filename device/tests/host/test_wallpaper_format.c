@@ -88,12 +88,29 @@ int main(void) {
     assert(info.format == WALLPAPER_MEDIA_WEBP && info.animated && info.width == 466);
 
     char url[256];
-    assert(wallpaper_build_random_url("bq", "eciyuan", url, sizeof(url)) == 0);
-    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan") == 0);
-    assert(wallpaper_build_random_url("landscape", "", url, sizeof(url)) == 0);
-    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=landscape") == 0);
-    assert(wallpaper_build_random_url("", "", url, sizeof(url)) == 0);
-    assert(wallpaper_build_random_url("landscape", "eciyuan", url, sizeof(url)) != 0);
-    assert(wallpaper_build_random_url("../bad", "", url, sizeof(url)) != 0);
+    assert(wallpaper_build_random_url("bq", "eciyuan", 7, url, sizeof(url)) == 0);
+    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan&_=7") == 0);
+    assert(wallpaper_build_random_url("landscape", "", 42, url, sizeof(url)) == 0);
+    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=landscape&_=42") == 0);
+    assert(wallpaper_build_random_url("", "", 0, url, sizeof(url)) == 0);
+    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?_=0") == 0);
+    // The nonce is what makes each request a distinct URL for the proxy's cache.
+    assert(wallpaper_build_random_url("bq", "eciyuan", 8, url, sizeof(url)) == 0);
+    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan&_=7") != 0);
+    assert(wallpaper_build_random_url("landscape", "eciyuan", 1, url, sizeof(url)) != 0);
+    assert(wallpaper_build_random_url("../bad", "", 1, url, sizeof(url)) != 0);
+
+    char proxied[512];
+    assert(wallpaper_build_random_url("bq", "eciyuan", 7, url, sizeof(url)) == 0);
+    assert(wallpaper_build_proxy_url(url, proxied, sizeof(proxied)) == 0);
+    assert(strcmp(proxied,
+                  "https://images.weserv.nl/?url=https%3A%2F%2Fuapis.cn%2Fapi%2Fv1%2Frandom"
+                  "%2Fimage%3Fcategory%3Dbq%26type%3Deciyuan%26_%3D7"
+                  "&w=520&h=520&fit=outside&we&n=-1") == 0);
+    // Every reserved character has to survive as an escape, or the proxy would read the
+    // origin's query parameters as its own.
+    assert(strstr(proxied, "?category=") == NULL && strstr(proxied, "&type=") == NULL);
+    char tiny[32];
+    assert(wallpaper_build_proxy_url(url, tiny, sizeof(tiny)) != 0);
     return 0;
 }

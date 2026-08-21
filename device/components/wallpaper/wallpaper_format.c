@@ -208,15 +208,61 @@ int wallpaper_settings_valid(const char* category, const char* type) {
     return 0;
 }
 
-int wallpaper_build_random_url(const char* category, const char* type,
+int wallpaper_build_random_url(const char* category, const char* type, uint32_t nonce,
                                char* output, size_t output_size) {
     static const char base[] = "https://uapis.cn/api/v1/random/image";
     if (!output || !output_size || !wallpaper_settings_valid(category, type)) return -1;
-    const int length = !category[0]
-                           ? snprintf(output, output_size, "%s", base)
-                           : !type[0]
-                                 ? snprintf(output, output_size, "%s?category=%s", base, category)
-                                 : snprintf(output, output_size, "%s?category=%s&type=%s", base,
-                                            category, type);
+    const int length =
+        !category[0]
+            ? snprintf(output, output_size, "%s?_=%lu", base, (unsigned long)nonce)
+            : !type[0]
+                  ? snprintf(output, output_size, "%s?category=%s&_=%lu", base, category,
+                             (unsigned long)nonce)
+                  : snprintf(output, output_size, "%s?category=%s&type=%s&_=%lu", base, category,
+                             type, (unsigned long)nonce);
+    return length > 0 && (size_t)length < output_size ? 0 : -1;
+}
+
+static int percent_encode(const char* input, char* output, size_t output_size) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t written = 0;
+    for (const unsigned char* cursor = (const unsigned char*)input; *cursor; ++cursor) {
+        const unsigned char value = *cursor;
+        const int unreserved = (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
+                               (value >= '0' && value <= '9') || value == '-' || value == '.' ||
+                               value == '_' || value == '~';
+        if (unreserved) {
+            if (written + 1 >= output_size) return -1;
+            output[written++] = (char)value;
+        } else {
+            if (written + 3 >= output_size) return -1;
+            output[written++] = '%';
+            output[written++] = hex[value >> 4];
+            output[written++] = hex[value & 0x0f];
+        }
+    }
+    if (written >= output_size) return -1;
+    output[written] = '\0';
+    return 0;
+}
+
+// The upstream endpoint frequently serves progressive JPEGs, which TJpgDec - the only JPEG
+// decoder on this device - cannot read at all, and full resolution files of a megabyte or
+// more, which take minutes to pull over the BLE tunnel. images.weserv.nl decodes and
+// re-encodes whatever it fetches, so the JPEG that reaches us is baseline, and it resizes
+// before sending, so the transfer is a fraction of the size.
+//   fit=outside sizes the short edge to 520, which is what the blurred background needs and
+//   what the device would box-filter down to anyway.
+//   we suppresses enlargement, so a small source is left alone.
+//   n=-1 keeps every frame of an animation; the default would flatten a GIF to its first.
+static const char kProxyPrefix[] = "https://images.weserv.nl/?url=";
+static const char kProxySuffix[] = "&w=520&h=520&fit=outside&we&n=-1";
+
+int wallpaper_build_proxy_url(const char* origin, char* output, size_t output_size) {
+    if (!origin || !output || !output_size) return -1;
+    char encoded[385];
+    if (percent_encode(origin, encoded, sizeof(encoded)) != 0) return -1;
+    const int length =
+        snprintf(output, output_size, "%s%s%s", kProxyPrefix, encoded, kProxySuffix);
     return length > 0 && (size_t)length < output_size ? 0 : -1;
 }

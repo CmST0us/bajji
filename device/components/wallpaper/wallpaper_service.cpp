@@ -12,6 +12,7 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
@@ -452,10 +453,7 @@ bool retryable(esp_err_t result) {
 }
 
 esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info_t* info) {
-    char url[256];
-    if (wallpaper_build_random_url(settings.category, settings.type, url, sizeof(url)) != 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    if (!wallpaper_settings_valid(settings.category, settings.type)) return ESP_ERR_INVALID_ARG;
     update_status([](WallpaperStatus& value) {
         copy_text(value.state, sizeof(value.state), value.has_cache ? "正在换一张…" : "正在获取图片");
     });
@@ -463,13 +461,30 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
     // and the endpoint hands out a different picture per request, so a rejected one (too
     // large to decode, or a format we do not handle) is worth one more roll of the dice.
     // Both cases are a wasted refresh to the user if we give up after a single attempt.
+    // A fresh nonce per attempt keeps the proxy from replaying its cached copy of the
+    // previous roll. The last attempt goes straight to the origin, so a wallpaper is still
+    // reachable when the proxy itself is unavailable - at the cost of whatever the origin
+    // hands back, which the format checks will reject if this device cannot draw it.
     esp_err_t result = ESP_FAIL;
     for (unsigned attempt = 1; attempt <= kDownloadAttempts; ++attempt) {
+        char origin[128];
+        if (wallpaper_build_random_url(settings.category, settings.type, esp_random(), origin,
+                                       sizeof(origin)) != 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        char url[512];
+        const bool direct = attempt == kDownloadAttempts;
+        if (direct) {
+            copy_text(url, sizeof(url), origin);
+        } else if (wallpaper_build_proxy_url(origin, url, sizeof(url)) != 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
         result = download_image(url, info);
         if (cancel_requested.load()) { result = ESP_ERR_INVALID_STATE; break; }
         if (result == ESP_OK || !retryable(result) || attempt == kDownloadAttempts) break;
-        ESP_LOGW(tag, "attempt %u/%u failed (%s), retrying", attempt, kDownloadAttempts,
-                 esp_err_to_name(result));
+        ESP_LOGW(tag, "attempt %u/%u failed (%s), retrying%s", attempt, kDownloadAttempts,
+                 esp_err_to_name(result),
+                 attempt + 1 == kDownloadAttempts ? " without the proxy" : "");
     }
     const char* target = result == ESP_OK ? image_path(info->format) : nullptr;
     if (result == ESP_OK && !target) result = ESP_ERR_NOT_SUPPORTED;
