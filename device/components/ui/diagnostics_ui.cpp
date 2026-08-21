@@ -274,6 +274,42 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
     return player;
 }
 
+// lv_gif_set_src() with a path opens the file and re-reads it for every frame
+// (lv_gif.c:155 GIF_openFile), and each SPIFFS read disables the flash cache on both
+// cores, which stalls touch and the main loop for as long as the animation runs. Handing
+// it an lv_image_dsc_t takes the GIF_openRAM path instead (lv_gif.c:152).
+struct GifSource {
+    lv_image_dsc_t dsc{};
+    void* data{};
+};
+
+GifSource* load_gif(const char* path) {
+    std::uint32_t size = 0;
+    void* data = lv_fs_load_with_alloc(path, &size);
+    if (!data) return nullptr;
+    if (!size) {
+        lv_free(data);
+        return nullptr;
+    }
+    auto* source = new (std::nothrow) GifSource;
+    if (!source) {
+        lv_free(data);
+        return nullptr;
+    }
+    source->data = data;
+    source->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    source->dsc.header.cf = LV_COLOR_FORMAT_RAW;
+    source->dsc.data = static_cast<const std::uint8_t*>(data);
+    source->dsc.data_size = size;
+    return source;
+}
+
+void destroy_gif_source(GifSource* source) {
+    if (!source) return;
+    lv_free(source->data);
+    delete source;
+}
+
 }  // namespace
 
 void ProductUI::create(const ble_link_status_t& link, const WallpaperStatus& wallpaper) {
@@ -321,6 +357,10 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
         still_image_ = nullptr;
         lv_image_cache_drop(stale);  // no widget may hold a decoded view of it past this point
         lv_draw_buf_destroy(stale);
+    }
+    if (gif_source_) {
+        destroy_gif_source(static_cast<GifSource*>(gif_source_));
+        gif_source_ = nullptr;
     }
     root_ = object(lv_screen_active(), 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
     lv_obj_center(root_);
@@ -520,13 +560,15 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     const bool webp = wallpaper.media.format == WALLPAPER_MEDIA_WEBP;
 
     lv_draw_buf_t* still = nullptr;
+    GifSource* gif_source = nullptr;
     auto add_media = [&](bool background) -> lv_obj_t* {
         lv_obj_t* image = nullptr;
 #if LV_USE_GIF
         if (gif) {
             image = lv_gif_create(root_);
             lv_gif_set_color_format(image, LV_COLOR_FORMAT_RGB565);
-            lv_gif_set_src(image, wallpaper.lvgl_path);
+            if (gif_source) lv_gif_set_src(image, &gif_source->dsc);
+            else lv_gif_set_src(image, wallpaper.lvgl_path);
         } else
 #endif
         {
@@ -558,7 +600,11 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
                                           wallpaper.media.animated);
     }
     if (!webp_player_) {
-        if (!gif) {
+        if (gif) {
+            gif_source = load_gif(wallpaper.lvgl_path);
+            gif_source_ = gif_source;
+            if (!gif_source) LV_LOG_WARN("gif load failed; playing from file");
+        } else {
             still = decode_still(wallpaper.lvgl_path);
             still_image_ = still;
             if (!still) LV_LOG_WARN("still decode failed; drawing from file");

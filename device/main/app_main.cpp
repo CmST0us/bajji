@@ -43,12 +43,15 @@ extern "C" void app_main() {
     std::uint64_t last_tx_bytes = 0;
     while (true) {
         board.poll();
-        const bajji::ButtonEvents buttons = board.take_button_events();
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();
         bajji::wallpaper_set_online(ip.link_up && ip.time_valid);
         const bajji::WallpaperStatus wallpaper = bajji::wallpaper_snapshot();
+        // Claim the button events only once the UI can act on them. Taking them first
+        // dropped every press made while the LVGL task held the lock; they now queue up
+        // in ButtonState instead.
         if (board.lvgl_lock(50)) {
+            const bajji::ButtonEvents buttons = board.take_button_events();
             ui.refresh(board.snapshot(), link, wallpaper, buttons);
             board.lvgl_unlock();
         }
