@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "wallpaper_service.hpp"
+#include "wallpaper_schedule.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -45,13 +46,14 @@ constexpr unsigned kRedirectLimit = 5;
 // Each Worker request tries up to three UAPI sources. Five fresh nonces also cover transient
 // Worker and BLE failures without ever falling back to an unbounded original image.
 constexpr unsigned kDownloadAttempts = 5;
+constexpr std::uint16_t kMaxAutoRefreshMinutes = 1440;
 constexpr wallpaper_media_format_t kFormats[] = {
     WALLPAPER_MEDIA_JPEG, WALLPAPER_MEDIA_PNG, WALLPAPER_MEDIA_GIF, WALLPAPER_MEDIA_WEBP,
 };
 
 const char* tag = "wallpaper";
 
-enum class Command : std::uint8_t { wake, refresh, save_settings, save_mode };
+enum class Command : std::uint8_t { wake, refresh, save_settings, save_mode, save_auto_refresh };
 
 struct QueuedCommand {
     Command type{Command::wake};
@@ -135,21 +137,27 @@ esp_err_t load_settings() {
     if (result != ESP_OK) return result;
     std::uint8_t configured = 0;
     std::uint8_t mode = 0;
+    std::uint16_t auto_refresh_minutes = 0;
     size_t category_size = sizeof(loaded.category);
     size_t type_size = sizeof(loaded.type);
     const esp_err_t configured_result = nvs_get_u8(handle, "configured", &configured);
     const esp_err_t category_result = nvs_get_str(handle, "category", loaded.category, &category_size);
     const esp_err_t type_result = nvs_get_str(handle, "type", loaded.type, &type_size);
     const esp_err_t mode_result = nvs_get_u8(handle, "display_mode", &mode);
+    const esp_err_t auto_refresh_result =
+        nvs_get_u16(handle, "auto_refresh", &auto_refresh_minutes);
     nvs_close(handle);
     if ((configured_result != ESP_OK && configured_result != ESP_ERR_NVS_NOT_FOUND) ||
         (category_result != ESP_OK && category_result != ESP_ERR_NVS_NOT_FOUND) ||
         (type_result != ESP_OK && type_result != ESP_ERR_NVS_NOT_FOUND) ||
-        (mode_result != ESP_OK && mode_result != ESP_ERR_NVS_NOT_FOUND)) {
+        (mode_result != ESP_OK && mode_result != ESP_ERR_NVS_NOT_FOUND) ||
+        (auto_refresh_result != ESP_OK && auto_refresh_result != ESP_ERR_NVS_NOT_FOUND)) {
         return ESP_FAIL;
     }
     loaded.configured = configured != 0;
     loaded.display_mode = mode == 1 ? DisplayMode::fit_blur : DisplayMode::cover;
+    loaded.auto_refresh_minutes =
+        auto_refresh_minutes <= kMaxAutoRefreshMinutes ? auto_refresh_minutes : 0;
     if (!wallpaper_settings_valid(loaded.category, loaded.type)) default_settings(&loaded);
     update_status([&](WallpaperStatus& value) { value.settings = loaded; });
     return ESP_OK;
@@ -163,7 +171,9 @@ esp_err_t persist_settings(const WallpaperSettings& settings) {
         (result = nvs_set_str(handle, "category", settings.category)) == ESP_OK &&
         (result = nvs_set_str(handle, "type", settings.type)) == ESP_OK &&
         (result = nvs_set_u8(handle, "display_mode",
-                             settings.display_mode == DisplayMode::fit_blur ? 1 : 0)) == ESP_OK) {
+                             settings.display_mode == DisplayMode::fit_blur ? 1 : 0)) == ESP_OK &&
+        (result = nvs_set_u16(handle, "auto_refresh",
+                              settings.auto_refresh_minutes)) == ESP_OK) {
         result = nvs_commit(handle);
     }
     nvs_close(handle);
@@ -533,13 +543,28 @@ void finish_cancelled() {
 void worker(void*) {
     WallpaperStatus initial = wallpaper_snapshot();
     bool pending_refresh = initial.settings.configured && !initial.has_cache;
+    std::uint64_t next_auto_refresh_ms =
+        auto_refresh_deadline_ms(static_cast<std::uint64_t>(esp_timer_get_time() / 1000),
+                                 initial.settings.auto_refresh_minutes);
     while (true) {
         QueuedCommand command;
-        const bool received =
-            xQueueReceive(command_queue, &command, portMAX_DELAY) == pdTRUE;
+        const std::uint64_t now = static_cast<std::uint64_t>(esp_timer_get_time() / 1000);
+        const std::uint32_t wait_ms =
+            pending_refresh ? UINT32_MAX : auto_refresh_wait_ms(now, next_auto_refresh_ms);
+        const TickType_t wait = wait_ms == UINT32_MAX ? portMAX_DELAY : pdMS_TO_TICKS(wait_ms);
+        const bool received = xQueueReceive(command_queue, &command, wait) == pdTRUE;
+        if (!received && next_auto_refresh_ms &&
+            static_cast<std::uint64_t>(esp_timer_get_time() / 1000) >= next_auto_refresh_ms) {
+            pending_refresh = true;
+            next_auto_refresh_ms = 0;
+        }
         if (cancel_requested.exchange(false)) {
             pending_refresh = false;
             finish_cancelled();
+            const WallpaperStatus current = wallpaper_snapshot();
+            next_auto_refresh_ms = auto_refresh_deadline_ms(
+                static_cast<std::uint64_t>(esp_timer_get_time() / 1000),
+                current.settings.auto_refresh_minutes);
         }
         if (received && command.type == Command::save_settings) {
             const esp_err_t result = persist_settings(command.settings);
@@ -553,6 +578,7 @@ void worker(void*) {
                 }
             });
             pending_refresh = result == ESP_OK;
+            if (pending_refresh) next_auto_refresh_ms = 0;
         } else if (received && command.type == Command::save_mode) {
             WallpaperStatus current = wallpaper_snapshot();
             current.settings.display_mode = command.settings.display_mode;
@@ -561,8 +587,25 @@ void worker(void*) {
                 value.last_error = result;
                 if (result == ESP_OK) value.settings.display_mode = command.settings.display_mode;
             });
+        } else if (received && command.type == Command::save_auto_refresh) {
+            WallpaperStatus current = wallpaper_snapshot();
+            current.settings.auto_refresh_minutes = command.settings.auto_refresh_minutes;
+            const esp_err_t result = persist_settings(current.settings);
+            update_status([&](WallpaperStatus& value) {
+                value.last_error = result;
+                if (result == ESP_OK) {
+                    value.settings.auto_refresh_minutes = command.settings.auto_refresh_minutes;
+                    copy_text(value.state, sizeof(value.state), "定时刷新已保存");
+                }
+            });
+            if (result == ESP_OK) {
+                next_auto_refresh_ms = auto_refresh_deadline_ms(
+                    static_cast<std::uint64_t>(esp_timer_get_time() / 1000),
+                    command.settings.auto_refresh_minutes);
+            }
         } else if (received && command.type == Command::refresh) {
             pending_refresh = true;
+            next_auto_refresh_ms = 0;
         }
 
         if (!pending_refresh) continue;
@@ -585,6 +628,10 @@ void worker(void*) {
         if (cancel_requested.exchange(false)) finish_cancelled();
         else finish_request(result, info);
         pending_refresh = false;
+        const WallpaperStatus completed = wallpaper_snapshot();
+        next_auto_refresh_ms = auto_refresh_deadline_ms(
+            static_cast<std::uint64_t>(esp_timer_get_time() / 1000),
+            completed.settings.auto_refresh_minutes);
     }
 }
 
@@ -662,6 +709,13 @@ esp_err_t wallpaper_set_display_mode(DisplayMode mode) {
     if (mode != DisplayMode::cover && mode != DisplayMode::fit_blur) return ESP_ERR_INVALID_ARG;
     QueuedCommand command{.type = Command::save_mode};
     command.settings.display_mode = mode;
+    return enqueue(command);
+}
+
+esp_err_t wallpaper_set_auto_refresh(std::uint16_t minutes) {
+    if (minutes > kMaxAutoRefreshMinutes) return ESP_ERR_INVALID_ARG;
+    QueuedCommand command{.type = Command::save_auto_refresh};
+    command.settings.auto_refresh_minutes = minutes;
     return enqueue(command);
 }
 

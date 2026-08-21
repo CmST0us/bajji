@@ -15,6 +15,7 @@ struct WallpaperSettings {
     char category[24]{};
     char type[16]{};
     DisplayMode display_mode{DisplayMode::cover};
+    std::uint16_t auto_refresh_minutes{};
 };
 
 struct WallpaperStatus {
@@ -38,6 +39,7 @@ void wallpaper_request_refresh();
 esp_err_t wallpaper_cancel_request();
 esp_err_t wallpaper_save_settings(const char* category, const char* type);
 esp_err_t wallpaper_set_display_mode(DisplayMode mode);
+esp_err_t wallpaper_set_auto_refresh(std::uint16_t minutes);
 WallpaperStatus wallpaper_snapshot();
 
 }  // namespace bajji

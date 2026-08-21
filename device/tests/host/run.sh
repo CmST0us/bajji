@@ -39,3 +39,9 @@ c++ -std=c++20 -Wall -Wextra -Werror \
   "$test_dir/test_button_state.cpp" \
   -o "$out_dir/test_button_state"
 "$out_dir/test_button_state"
+
+c++ -std=c++20 -Wall -Wextra -Werror \
+  -I"$device_dir/components/wallpaper/include" \
+  "$test_dir/test_wallpaper_schedule.cpp" \
+  -o "$out_dir/test_wallpaper_schedule"
+"$out_dir/test_wallpaper_schedule"
