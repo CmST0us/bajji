@@ -25,6 +25,7 @@ constexpr int kSafeWidth = 328;
 constexpr std::uint32_t kControlsDurationMs = 3000;
 constexpr std::uint32_t kFadeMs = 180;
 constexpr std::uint32_t kPairSuccessMs = 600;
+constexpr std::uint32_t kSpinnerDurationMs = 900;
 
 constexpr std::uint32_t kBase = 0x05070c;
 constexpr std::uint32_t kSurface = 0x0b1522;
@@ -123,17 +124,38 @@ lv_obj_t* settings_title(lv_obj_t* parent, const char* text, int y) {
     return label(parent, text, kSafeX, y, kSafeWidth, &bajji_font_24, kPrimary);
 }
 
+void rotate_spinner(void* spinner, std::int32_t rotation) {
+    lv_arc_set_rotation(static_cast<lv_obj_t*>(spinner), rotation);
+}
+
+void start_spinner(lv_obj_t* spinner) {
+    lv_anim_delete(spinner, nullptr);
+    lv_anim_t animation;
+    lv_anim_init(&animation);
+    lv_anim_set_var(&animation, spinner);
+    lv_anim_set_exec_cb(&animation, rotate_spinner);
+    lv_anim_set_values(&animation, 270, 630);
+    lv_anim_set_duration(&animation, kSpinnerDurationMs);
+    lv_anim_set_path_cb(&animation, lv_anim_path_linear);
+    lv_anim_set_repeat_count(&animation, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&animation);
+}
+
 lv_obj_t* spinner(lv_obj_t* parent, int x, int y, int size) {
-    auto* value = lv_spinner_create(parent);
+    auto* value = lv_arc_create(parent);
     lv_obj_set_pos(value, x, y);
     lv_obj_set_size(value, size, size);
-    lv_spinner_set_anim_params(value, 900, 92);
+    // lv_spinner drives its two ends with different paths (lv_spinner.c:77-102), which
+    // makes a small indicator visibly stretch and change speed instead of rotating evenly.
+    lv_arc_set_bg_angles(value, 0, 360);
+    lv_arc_set_angles(value, 0, 92);
     lv_obj_set_style_arc_width(value, 8, LV_PART_MAIN);
     lv_obj_set_style_arc_color(value, color(kOverlay), LV_PART_MAIN);
     lv_obj_set_style_arc_width(value, 8, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(value, color(kAccent), LV_PART_INDICATOR);
     lv_obj_remove_style(value, nullptr, LV_PART_KNOB);
     lv_obj_remove_flag(value, LV_OBJ_FLAG_CLICKABLE);
+    start_spinner(value);
     return value;
 }
 
@@ -1064,7 +1086,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
           kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
     if (!wallpaper.busy) {
         lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
-        // A hidden LVGL spinner still runs two infinite animations (lv_spinner.c:77-102).
+        // Hiding an object does not stop its animation.
         lv_anim_delete(refresh_spinner_, nullptr);
     }
 
@@ -1221,7 +1243,7 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
     request_revision_ = wallpaper.request_revision;
     show_controls();
     if (refresh_overlay_) {
-        lv_spinner_set_anim_params(refresh_spinner_, 900, 92);
+        start_spinner(refresh_spinner_);
         lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
     }
     if (!wallpaper.online && cache_error_) {
@@ -1298,7 +1320,7 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
         if (refresh_overlay_) {
             const bool hidden = lv_obj_has_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
             if (wallpaper.busy && hidden) {
-                lv_spinner_set_anim_params(refresh_spinner_, 900, 92);
+                start_spinner(refresh_spinner_);
                 lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
             } else if (!wallpaper.busy && !hidden) {
                 lv_obj_add_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);

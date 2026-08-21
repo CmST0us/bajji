@@ -223,49 +223,21 @@ int wallpaper_build_random_url(const char* category, const char* type, uint32_t 
     return length > 0 && (size_t)length < output_size ? 0 : -1;
 }
 
-static int percent_encode(const char* input, char* output, size_t output_size) {
-    static const char hex[] = "0123456789ABCDEF";
-    size_t written = 0;
-    for (const unsigned char* cursor = (const unsigned char*)input; *cursor; ++cursor) {
-        const unsigned char value = *cursor;
-        const int unreserved = (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
-                               (value >= '0' && value <= '9') || value == '-' || value == '.' ||
-                               value == '_' || value == '~';
-        if (unreserved) {
-            if (written + 1 >= output_size) return -1;
-            output[written++] = (char)value;
-        } else {
-            if (written + 3 >= output_size) return -1;
-            output[written++] = '%';
-            output[written++] = hex[value >> 4];
-            output[written++] = hex[value & 0x0f];
-        }
-    }
-    if (written >= output_size) return -1;
-    output[written] = '\0';
-    return 0;
-}
-
 // The upstream endpoint frequently serves progressive JPEGs, which TJpgDec - the only JPEG
 // decoder on this device - cannot read at all, and full resolution files of a megabyte or
-// more, which take minutes to pull over the BLE tunnel. images.weserv.nl decodes and
-// re-encodes whatever it fetches, so the JPEG that reaches us is baseline, and it resizes
-// before sending, so the transfer is a fraction of the size.
-//   Cover mode sizes the short edge to the 466 px display, so LVGL can crop without scaling.
-//   Fit mode sizes the long edge to the 328 px clear-image box for the same reason.
-//   Do not use `we`: leaving a small animation unchanged makes LVGL enlarge it in software
-//   every frame. The blurred background is rendered once and can afford to scale either size.
-//   n=-1 keeps every frame of an animation; the default would flatten a GIF to its first.
-static const char kProxyPrefix[] = "https://images.weserv.nl/?url=";
-static const char kProxyCoverSuffix[] = "&w=466&h=466&fit=outside&n=-1";
-static const char kProxyFitSuffix[] = "&w=328&h=328&fit=inside&n=-1";
+// more, which take minutes to pull over the BLE tunnel. The Worker in
+// cloudflare/image-proxy/worker.mjs converts every still or animation to WebP and fixes the
+// dimensions before transfer: cover is 466x466 at quality 90, while fit is contained in
+// 328x328 at quality 85. The nonce remains in the query so each refresh rolls a new image.
+static const char kOriginPrefix[] = "https://uapis.cn/api/v1/random/image?";
+static const char kProxyBase[] =
+    "https://bajji-image-proxy.eric3u.cc";
 
 int wallpaper_build_proxy_url(const char* origin, bool fit, char* output, size_t output_size) {
     if (!origin || !output || !output_size) return -1;
-    char encoded[385];
-    if (percent_encode(origin, encoded, sizeof(encoded)) != 0) return -1;
-    const int length =
-        snprintf(output, output_size, "%s%s%s", kProxyPrefix, encoded,
-                 fit ? kProxyFitSuffix : kProxyCoverSuffix);
+    const size_t prefix_length = sizeof(kOriginPrefix) - 1;
+    if (strncmp(origin, kOriginPrefix, prefix_length) != 0 || !origin[prefix_length]) return -1;
+    const int length = snprintf(output, output_size, "%s/%s?%s", kProxyBase,
+                                fit ? "fit" : "cover", origin + prefix_length);
     return length > 0 && (size_t)length < output_size ? 0 : -1;
 }

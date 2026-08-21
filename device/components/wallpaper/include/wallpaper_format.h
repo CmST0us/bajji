@@ -44,8 +44,8 @@ int wallpaper_settings_valid(const char* category, const char* type);
 int wallpaper_build_random_url(const char* category, const char* type, uint32_t nonce,
                                char* output, size_t output_size);
 
-// Wraps `origin` in the images.weserv.nl resizing proxy. `fit` selects the clear image's
-// 328 px contain target; cover mode uses the display's 466 px outside target.
+// Routes a validated UAPI URL through the Cloudflare image Worker. `fit` selects its 328 px
+// contain transform; cover mode returns a cropped 466x466 image.
 int wallpaper_build_proxy_url(const char* origin, bool fit, char* output, size_t output_size);
 
 #ifdef __cplusplus

@@ -42,9 +42,8 @@ constexpr size_t kPngDecodedLimit = 4U * 1024U * 1024U;
 // so they stay on a tighter budget than a still of the same size would.
 constexpr size_t kAnimatedDecodedLimit = 2U * 1024U * 1024U;
 constexpr unsigned kRedirectLimit = 5;
-// Four goes at the proxy before the direct fallback: the proxy refuses roughly one
-// request in ten because of the origin it redirects to, so this makes reaching the
-// fallback - and the multi-megabyte download it implies - very unlikely.
+// Each Worker request tries up to three UAPI sources. Five fresh nonces also cover transient
+// Worker and BLE failures without ever falling back to an unbounded original image.
 constexpr unsigned kDownloadAttempts = 5;
 constexpr wallpaper_media_format_t kFormats[] = {
     WALLPAPER_MEDIA_JPEG, WALLPAPER_MEDIA_PNG, WALLPAPER_MEDIA_GIF, WALLPAPER_MEDIA_WEBP,
@@ -465,9 +464,8 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
     // large to decode, or a format we do not handle) is worth one more roll of the dice.
     // Both cases are a wasted refresh to the user if we give up after a single attempt.
     // A fresh nonce per attempt keeps the proxy from replaying its cached copy of the
-    // previous roll. The last attempt goes straight to the origin, so a wallpaper is still
-    // reachable when the proxy itself is unavailable - at the cost of whatever the origin
-    // hands back, which the format checks will reject if this device cannot draw it.
+    // previous roll. Every attempt stays behind the transformer because an original may be
+    // progressive, too large for the BLE transfer, or too large to decode on this device.
     esp_err_t result = ESP_FAIL;
     for (unsigned attempt = 1; attempt <= kDownloadAttempts; ++attempt) {
         char origin[128];
@@ -476,20 +474,16 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
             return ESP_ERR_INVALID_ARG;
         }
         char url[512];
-        const bool direct = attempt == kDownloadAttempts;
-        if (direct) {
-            copy_text(url, sizeof(url), origin);
-        } else if (wallpaper_build_proxy_url(origin,
-                                             settings.display_mode == DisplayMode::fit_blur,
-                                             url, sizeof(url)) != 0) {
+        if (wallpaper_build_proxy_url(origin,
+                                      settings.display_mode == DisplayMode::fit_blur,
+                                      url, sizeof(url)) != 0) {
             return ESP_ERR_INVALID_ARG;
         }
         result = download_image(url, info);
         if (cancel_requested.load()) { result = ESP_ERR_INVALID_STATE; break; }
         if (result == ESP_OK || !retryable(result) || attempt == kDownloadAttempts) break;
-        ESP_LOGW(tag, "attempt %u/%u failed (%s), retrying%s", attempt, kDownloadAttempts,
-                 esp_err_to_name(result),
-                 attempt + 1 == kDownloadAttempts ? " without the proxy" : "");
+        ESP_LOGW(tag, "attempt %u/%u failed (%s), retrying", attempt, kDownloadAttempts,
+                 esp_err_to_name(result));
     }
     const char* target = result == ESP_OK ? image_path(info->format) : nullptr;
     if (result == ESP_OK && !target) result = ESP_ERR_NOT_SUPPORTED;

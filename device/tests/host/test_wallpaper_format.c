@@ -87,31 +87,52 @@ int main(void) {
     assert(wallpaper_media_validate(webp, sizeof(webp), 1024, &info) == WALLPAPER_FORMAT_OK);
     assert(info.format == WALLPAPER_MEDIA_WEBP && info.animated && info.width == 466);
 
+    static const char* const valid_settings[][2] = {
+        {"", ""},
+        {"acg", ""}, {"acg", "pc"}, {"acg", "mb"},
+        {"landscape", ""},
+        {"bq", ""}, {"bq", "xiongmao"}, {"bq", "waiguoren"}, {"bq", "maomao"},
+        {"bq", "ikun"}, {"bq", "eciyuan"},
+        {"furry", ""}, {"furry", "z4k"}, {"furry", "szs8k"}, {"furry", "s4k"},
+        {"furry", "4k"},
+        {"anime", ""}, {"pc_wallpaper", ""}, {"mobile_wallpaper", ""},
+        {"general_anime", ""}, {"ai_drawing", ""},
+    };
     char url[256];
+    char proxied[512];
+    for (size_t index = 0; index < sizeof(valid_settings) / sizeof(valid_settings[0]); ++index) {
+        assert(wallpaper_build_random_url(valid_settings[index][0], valid_settings[index][1], 7,
+                                          url, sizeof(url)) == 0);
+        assert(wallpaper_build_proxy_url(url, false, proxied, sizeof(proxied)) == 0);
+        assert(wallpaper_build_proxy_url(url, true, proxied, sizeof(proxied)) == 0);
+    }
     assert(wallpaper_build_random_url("bq", "eciyuan", 7, url, sizeof(url)) == 0);
     assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan&_=7") == 0);
-    assert(wallpaper_build_random_url("landscape", "", 42, url, sizeof(url)) == 0);
-    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=landscape&_=42") == 0);
-    assert(wallpaper_build_random_url("", "", 0, url, sizeof(url)) == 0);
-    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?_=0") == 0);
+    assert(wallpaper_build_random_url("acg", "", 42, url, sizeof(url)) == 0);
+    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=acg&_=42") == 0);
     // The nonce is what makes each request a distinct URL for the proxy's cache.
     assert(wallpaper_build_random_url("bq", "eciyuan", 8, url, sizeof(url)) == 0);
     assert(strcmp(url, "https://uapis.cn/api/v1/random/image?category=bq&type=eciyuan&_=7") != 0);
+    assert(wallpaper_build_random_url("", "", 1, url, sizeof(url)) == 0);
+    assert(strcmp(url, "https://uapis.cn/api/v1/random/image?_=1") == 0);
+    assert(wallpaper_build_random_url("landscape", "", 1, url, sizeof(url)) == 0);
+    assert(wallpaper_build_random_url("ai_drawing", "", 1, url, sizeof(url)) == 0);
     assert(wallpaper_build_random_url("landscape", "eciyuan", 1, url, sizeof(url)) != 0);
     assert(wallpaper_build_random_url("../bad", "", 1, url, sizeof(url)) != 0);
 
-    char proxied[512];
     assert(wallpaper_build_random_url("bq", "eciyuan", 7, url, sizeof(url)) == 0);
     assert(wallpaper_build_proxy_url(url, false, proxied, sizeof(proxied)) == 0);
     assert(strcmp(proxied,
-                  "https://images.weserv.nl/?url=https%3A%2F%2Fuapis.cn%2Fapi%2Fv1%2Frandom"
-                  "%2Fimage%3Fcategory%3Dbq%26type%3Deciyuan%26_%3D7"
-                  "&w=466&h=466&fit=outside&n=-1") == 0);
+                  "https://bajji-image-proxy.eric3u.cc/cover"
+                  "?category=bq&type=eciyuan&_=7") == 0);
     assert(wallpaper_build_proxy_url(url, true, proxied, sizeof(proxied)) == 0);
-    assert(strstr(proxied, "&w=328&h=328&fit=inside&n=-1") != NULL);
-    // Every reserved character has to survive as an escape, or the proxy would read the
-    // origin's query parameters as its own.
-    assert(strstr(proxied, "?category=") == NULL && strstr(proxied, "&type=") == NULL);
+    assert(strcmp(proxied,
+                  "https://bajji-image-proxy.eric3u.cc/fit"
+                  "?category=bq&type=eciyuan&_=7") == 0);
+    assert(wallpaper_build_proxy_url("https://example.com/image.jpg", false, proxied,
+                                     sizeof(proxied)) != 0);
+    assert(wallpaper_build_proxy_url("https://uapis.cn/api/v1/random/image", false, proxied,
+                                     sizeof(proxied)) != 0);
     char tiny[32];
     assert(wallpaper_build_proxy_url(url, false, tiny, sizeof(tiny)) != 0);
     return 0;
