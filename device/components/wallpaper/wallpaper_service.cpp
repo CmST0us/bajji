@@ -27,7 +27,7 @@ constexpr char kImageTemp[] = "/spiffs/wallpaper.tmp";
 constexpr char kImageBackup[] = "/spiffs/wallpaper.bak";
 constexpr char kNvsNamespace[] = "bajji_ui";
 constexpr size_t kImageLimit = 3U * 1024U * 1024U;
-constexpr size_t kDecodedLimit = 5U * 1024U * 1024U;
+constexpr size_t kDecodedLimit = 2U * 1024U * 1024U;  // must not exceed CONFIG_LV_CACHE_DEF_SIZE
 constexpr unsigned kRedirectLimit = 5;
 constexpr wallpaper_media_format_t kFormats[] = {
     WALLPAPER_MEDIA_JPEG, WALLPAPER_MEDIA_PNG, WALLPAPER_MEDIA_GIF, WALLPAPER_MEDIA_WEBP,
@@ -239,11 +239,16 @@ esp_err_t validate_image_file(const char* path, wallpaper_media_info_t* info) {
     std::free(data);
     if (format != WALLPAPER_FORMAT_OK) return ESP_ERR_INVALID_RESPONSE;
     const std::uint64_t pixels = static_cast<std::uint64_t>(info->width) * info->height;
+    // JPEG used to fall through to 0 here, so its size was never checked. The UI now
+    // pre-decodes stills into an RGB565 buffer (2 B/px), so bound it by that.
     const std::uint64_t decoded = info->format == WALLPAPER_MEDIA_GIF
                                       ? pixels * 4U
                                       : info->format == WALLPAPER_MEDIA_WEBP
                                             ? pixels * 8U
-                                            : info->format == WALLPAPER_MEDIA_PNG ? pixels * 4U : 0U;
+                                            : info->format == WALLPAPER_MEDIA_PNG
+                                                  ? pixels * 4U
+                                                  : info->format == WALLPAPER_MEDIA_JPEG ? pixels * 2U
+                                                                                         : 0U;
     return decoded <= kDecodedLimit ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 

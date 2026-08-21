@@ -67,6 +67,7 @@ private:
     _lv_obj_t* type_value_{};
     _lv_obj_t* type_row_{};
     void* webp_player_{};
+    void* still_image_{};  // lv_draw_buf_t* holding the pre-decoded still wallpaper
     WallpaperSettings draft_{};
     DisplayMode display_mode_{DisplayMode::cover};
     WallpaperStatus latest_wallpaper_{};

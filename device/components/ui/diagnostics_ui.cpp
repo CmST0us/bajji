@@ -316,6 +316,12 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     destroy_webp_player(static_cast<WebPPlayer*>(webp_player_));
     webp_player_ = nullptr;
     if (root_) lv_obj_delete(root_);
+    if (still_image_) {
+        auto* stale = static_cast<lv_draw_buf_t*>(still_image_);
+        still_image_ = nullptr;
+        lv_image_cache_drop(stale);  // no widget may hold a decoded view of it past this point
+        lv_draw_buf_destroy(stale);
+    }
     root_ = object(lv_screen_active(), 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
     lv_obj_center(root_);
     lv_obj_set_style_border_width(root_, next == Page::image ? 0 : 2, 0);
@@ -471,6 +477,41 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     }
 }
 
+// LVGL's JPEG decoder only ever streams MCU blocks (lv_tjpgd.c:213 decoder_get_area); it
+// never produces a whole decoded image and never populates the image cache. Drawing straight
+// from a file therefore re-reads and re-decodes the entire wallpaper on every redraw, and
+// each SPIFFS read stalls both cores while the flash cache is disabled. Decode once into an
+// RGB565 buffer here so redraws are a plain blit from PSRAM.
+static lv_draw_buf_t* decode_still(const char* path) {
+    lv_image_header_t header{};
+    if (lv_image_decoder_get_info(path, &header) != LV_RESULT_OK) return nullptr;
+    if (!header.w || !header.h) return nullptr;
+    auto* buffer = lv_draw_buf_create(header.w, header.h, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
+    if (!buffer) return nullptr;
+
+    // A canvas is the supported way to render into a draw buffer; it is never shown.
+    auto* canvas = lv_canvas_create(lv_screen_active());
+    if (!canvas) {
+        lv_draw_buf_destroy(buffer);
+        return nullptr;
+    }
+    lv_obj_add_flag(canvas, LV_OBJ_FLAG_HIDDEN);
+    lv_canvas_set_draw_buf(canvas, buffer);
+
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    lv_draw_image_dsc_t image_dsc;
+    lv_draw_image_dsc_init(&image_dsc);
+    image_dsc.src = path;
+    const lv_area_t area{0, 0, static_cast<std::int32_t>(header.w) - 1,
+                         static_cast<std::int32_t>(header.h) - 1};
+    lv_draw_image(&layer, &image_dsc, &area);
+    lv_canvas_finish_layer(canvas, &layer);
+
+    lv_obj_delete(canvas);  // the destructor drops the cache entry but leaves the buffer to us
+    return buffer;
+}
+
 void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     if (!root_ || !wallpaper.has_cache || !wallpaper.lvgl_path[0]) return;
     lv_image_cache_drop(wallpaper.lvgl_path);
@@ -478,6 +519,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
     const bool fit = display_mode_ == DisplayMode::fit_blur;
     const bool webp = wallpaper.media.format == WALLPAPER_MEDIA_WEBP;
 
+    lv_draw_buf_t* still = nullptr;
     auto add_media = [&](bool background) -> lv_obj_t* {
         lv_obj_t* image = nullptr;
 #if LV_USE_GIF
@@ -489,7 +531,8 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
 #endif
         {
             image = lv_image_create(root_);
-            lv_image_set_src(image, wallpaper.lvgl_path);
+            if (still) lv_image_set_src(image, still);
+            else lv_image_set_src(image, wallpaper.lvgl_path);
         }
         if (background) {
             lv_obj_set_pos(image, -27, -27);
@@ -515,6 +558,11 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
                                           wallpaper.media.animated);
     }
     if (!webp_player_) {
+        if (!gif) {
+            still = decode_still(wallpaper.lvgl_path);
+            still_image_ = still;
+            if (!still) LV_LOG_WARN("still decode failed; drawing from file");
+        }
         if (fit) {
             add_media(true);
             auto* veil = object(root_, 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
