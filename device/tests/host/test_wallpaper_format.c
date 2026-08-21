@@ -6,13 +6,18 @@
 #include <string.h>
 
 int main(void) {
+    // SOF0 with three components: 4:2:0 luma and 1x1 chroma, the shape TJpgDec accepts.
     const uint8_t jpeg[] = {
         0xff, 0xd8,
         0xff, 0xe0, 0x00, 0x04, 0x00, 0x00,
-        0xff, 0xc0, 0x00, 0x08, 0x08, 0x03, 0x20, 0x01, 0xe0, 0x00,
+        0xff, 0xc0, 0x00, 0x11, 0x08, 0x03, 0x20, 0x01, 0xe0, 0x03,
+        0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
         0xff, 0xda, 0x00, 0x02,
         0xff, 0xd9,
     };
+    const size_t sof_marker = 9;      // index of the 0xc0 byte
+    const size_t sof_components = 17; // index of the component count
+    const size_t sof_luma_sampling = 19;
     wallpaper_media_info_t info = {0};
     assert(wallpaper_media_validate(jpeg, sizeof(jpeg), 1024, &info) == WALLPAPER_FORMAT_OK);
     assert(info.format == WALLPAPER_MEDIA_JPEG && !info.animated);
@@ -32,6 +37,29 @@ int main(void) {
            WALLPAPER_FORMAT_INVALID);
     assert(wallpaper_media_validate(jpeg, sizeof(jpeg) - 1, 1024, &info) ==
            WALLPAPER_FORMAT_INVALID);
+
+    // TJpgDec is baseline only, so a progressive frame has to be turned away here rather
+    // than downloaded and then drawn as an empty rectangle.
+    memcpy(malformed, jpeg, sizeof(jpeg));
+    malformed[sof_marker] = 0xc2;  // SOF2, progressive
+    assert(wallpaper_media_validate(malformed, sizeof(malformed), 1024, &info) ==
+           WALLPAPER_FORMAT_UNSUPPORTED);
+    memcpy(malformed, jpeg, sizeof(jpeg));
+    malformed[sof_marker] = 0xc1;  // SOF1, extended sequential
+    assert(wallpaper_media_validate(malformed, sizeof(malformed), 1024, &info) ==
+           WALLPAPER_FORMAT_UNSUPPORTED);
+    memcpy(malformed, jpeg, sizeof(jpeg));
+    malformed[sof_luma_sampling] = 0x12;  // 1x2 luma, not a layout TJpgDec supports
+    assert(wallpaper_media_validate(malformed, sizeof(malformed), 1024, &info) ==
+           WALLPAPER_FORMAT_UNSUPPORTED);
+    memcpy(malformed, jpeg, sizeof(jpeg));
+    malformed[sof_components] = 4;  // CMYK
+    assert(wallpaper_media_validate(malformed, sizeof(malformed), 1024, &info) ==
+           WALLPAPER_FORMAT_UNSUPPORTED);
+    memcpy(malformed, jpeg, sizeof(jpeg));
+    malformed[sof_luma_sampling] = 0x11;  // 4:4:4 is fine
+    assert(wallpaper_media_validate(malformed, sizeof(malformed), 1024, &info) ==
+           WALLPAPER_FORMAT_OK);
 
     const uint8_t png[] = {
         0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a,

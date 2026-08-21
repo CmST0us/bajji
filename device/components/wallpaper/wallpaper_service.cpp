@@ -12,7 +12,8 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_spiffs.h"
+#include "esp_timer.h"
+#include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -23,12 +24,24 @@ namespace bajji {
 namespace {
 
 constexpr char kPartition[] = "wallpaper";
+// Historical name, kept because CONFIG_LV_FS_STDIO_PATH maps LVGL's "S:" drive to it.
+constexpr char kMountPoint[] = "/spiffs";
 constexpr char kImageTemp[] = "/spiffs/wallpaper.tmp";
 constexpr char kImageBackup[] = "/spiffs/wallpaper.bak";
 constexpr char kNvsNamespace[] = "bajji_ui";
 constexpr size_t kImageLimit = 3U * 1024U * 1024U;
-constexpr size_t kDecodedLimit = 2U * 1024U * 1024U;  // must not exceed CONFIG_LV_CACHE_DEF_SIZE
+// Peak PSRAM the UI needs to turn the file into something drawable.
+// JPEG is descaled inside the IDCT, so its peak is the descaled buffer rather than the source
+// resolution; keep this in step with kJpegDecodeBudget in diagnostics_ui.cpp.
+constexpr size_t kJpegDecodedLimit = 2U * 1024U * 1024U;
+// PNG has no descaler - lodepng always produces the whole ARGB8888 image, and the UI bakes it
+// into an RGB565 buffer while that is still live - so here the source resolution is the limit.
+constexpr size_t kPngDecodedLimit = 4U * 1024U * 1024U;
+// Animations keep per-frame buffers alive for as long as they play and cost CPU every frame,
+// so they stay on a tighter budget than a still of the same size would.
+constexpr size_t kAnimatedDecodedLimit = 2U * 1024U * 1024U;
 constexpr unsigned kRedirectLimit = 5;
+constexpr unsigned kDownloadAttempts = 3;
 constexpr wallpaper_media_format_t kFormats[] = {
     WALLPAPER_MEDIA_JPEG, WALLPAPER_MEDIA_PNG, WALLPAPER_MEDIA_GIF, WALLPAPER_MEDIA_WEBP,
 };
@@ -58,6 +71,7 @@ SemaphoreHandle_t status_mutex;
 SemaphoreHandle_t client_mutex;
 QueueHandle_t command_queue;
 esp_http_client_handle_t active_client;
+wl_handle_t wl_partition = WL_INVALID_HANDLE;
 std::atomic_bool cancel_requested{};
 bool started;
 
@@ -238,23 +252,50 @@ esp_err_t validate_image_file(const char* path, wallpaper_media_info_t* info) {
         read ? wallpaper_media_validate(data, static_cast<size_t>(length), kImageLimit, info)
              : WALLPAPER_FORMAT_TRUNCATED;
     std::free(data);
-    if (format != WALLPAPER_FORMAT_OK) return ESP_ERR_INVALID_RESPONSE;
+    if (format != WALLPAPER_FORMAT_OK) {
+        ESP_LOGW(tag, "rejected image: %s",
+                 format == WALLPAPER_FORMAT_UNSUPPORTED
+                     ? "the decoder only handles baseline JPEG"
+                     : format == WALLPAPER_FORMAT_TOO_LARGE
+                           ? "over the download limit"
+                           : format == WALLPAPER_FORMAT_TRUNCATED ? "truncated" : "unrecognised");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     const std::uint64_t pixels = static_cast<std::uint64_t>(info->width) * info->height;
-    // JPEG used to fall through to 0 here, so its size was never checked. The UI now
-    // pre-decodes stills into an RGB565 buffer (2 B/px), so bound it by that.
-    const std::uint64_t decoded = info->format == WALLPAPER_MEDIA_GIF
-                                      ? pixels * 4U
-                                      : info->format == WALLPAPER_MEDIA_WEBP
-                                            ? pixels * 8U
-                                            : info->format == WALLPAPER_MEDIA_PNG
-                                                  ? pixels * 4U
-                                                  : info->format == WALLPAPER_MEDIA_JPEG ? pixels * 2U
-                                                                                         : 0U;
-    return decoded <= kDecodedLimit ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    // Bytes per pixel held at the same time while decoding, per format:
+    //   JPEG  the RGB565 buffer decode_still() renders into.
+    //   PNG   lodepng's ARGB8888 output plus that same RGB565 buffer.
+    //   GIF   lv_gif's decoded frame canvas.
+    //   WebP  the player's two frame buffers.
+    std::uint64_t decoded = 0;
+    std::uint64_t limit = 0;
+    switch (info->format) {
+        case WALLPAPER_MEDIA_JPEG:
+            // decode_jpeg_scaled() halves each axis until the RGB565 result fits, up to the
+            // 1/8 TJpgDec allows. Model the same choice so both sides agree on what decodes.
+            limit = kJpegDecodedLimit;
+            decoded = pixels * 2U;
+            for (unsigned shift = 1; shift <= 3 && decoded > limit; ++shift) {
+                decoded = (pixels >> (2U * shift)) * 2U;
+            }
+            break;
+        case WALLPAPER_MEDIA_PNG: decoded = pixels * 6U; limit = kPngDecodedLimit; break;
+        case WALLPAPER_MEDIA_GIF: decoded = pixels * 4U; limit = kAnimatedDecodedLimit; break;
+        case WALLPAPER_MEDIA_WEBP: decoded = pixels * 8U; limit = kAnimatedDecodedLimit; break;
+        default: return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (decoded > limit) {
+        ESP_LOGW(tag, "%ux%u %s needs %ukB decoded, limit %ukB", info->width, info->height,
+                 info->animated ? "animation" : "still",
+                 static_cast<unsigned>(decoded / 1024U), static_cast<unsigned>(limit / 1024U));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
 }
 
 esp_err_t download_image(const char* url, wallpaper_media_info_t* info) {
     ESP_LOGI(tag, "HTTP GET %s", url);
+    const std::int64_t started = esp_timer_get_time();
     std::remove(kImageTemp);
     FILE* file = std::fopen(kImageTemp, "wb");
     if (!file) return ESP_FAIL;
@@ -262,7 +303,9 @@ esp_err_t download_image(const char* url, wallpaper_media_info_t* info) {
     esp_http_client_config_t config{};
     config.url = url;
     config.user_agent = "Bajji-StopWatch/2";
-    config.timeout_ms = 15000;
+    // Per-read timeout. The tunnel routinely drops to a few kB/s, so a short one turns a
+    // slow transfer into a failed transfer.
+    config.timeout_ms = 30000;
     config.max_redirection_count = kRedirectLimit;
     config.disable_auto_redirect = true;
     config.event_handler = http_event;
@@ -301,13 +344,17 @@ esp_err_t download_image(const char* url, wallpaper_media_info_t* info) {
     if (result == ESP_OK) result = validate_image_file(kImageTemp, info);
     if (result != ESP_OK) {
         std::remove(kImageTemp);
-        ESP_LOGE(tag, "image download failed: %s status=%d bytes=%u", esp_err_to_name(result),
-                 code, static_cast<unsigned>(header.total));
+        ESP_LOGE(tag, "image download failed: %s status=%d bytes=%u after %u ms",
+                 esp_err_to_name(result), code, static_cast<unsigned>(header.total),
+                 static_cast<unsigned>((esp_timer_get_time() - started) / 1000));
         return result;
     }
-    ESP_LOGI(tag, "downloaded %u bytes, format=%d %ux%u animated=%d",
-             static_cast<unsigned>(header.total), static_cast<int>(info->format), info->width,
-             info->height, info->animated);
+    const unsigned elapsed = static_cast<unsigned>(
+        (esp_timer_get_time() - started) / 1000);
+    ESP_LOGI(tag, "downloaded %u bytes in %u ms (%u B/s), format=%d %ux%u animated=%d",
+             static_cast<unsigned>(header.total), elapsed,
+             elapsed ? static_cast<unsigned>(header.total * 1000U / elapsed) : 0U,
+             static_cast<int>(info->format), info->width, info->height, info->animated);
     return ESP_OK;
 }
 
@@ -358,13 +405,24 @@ void recover_cache() {
 }
 
 esp_err_t mount_cache() {
-    const esp_vfs_spiffs_conf_t config = {
-        .base_path = "/spiffs",
-        .partition_label = kPartition,
-        .max_files = 5,
+    // FAT rather than SPIFFS. SPIFFS has no free list: deleting a file only marks its
+    // pages deleted, and spiffs_gc_check() counts deleted pages against the free total,
+    // so a partition that stores one multi-megabyte image rewritten on every refresh
+    // runs out of free pages within a handful of downloads. From then on nearly every
+    // fwrite() runs spiffs_gc_find_candidate(), which sweeps the lookup page of all
+    // 2048 blocks to reclaim at most CONFIG_SPIFFS_GC_MAX_RUNS * 4 kB. Those reads run
+    // with the flash cache disabled on both cores, so the second core spins in ipc0 and
+    // its idle task starves until the task watchdog fires. FAT frees clusters on unlink
+    // and has no collector, so a write costs a FAT update plus the data sectors.
+    const esp_vfs_fat_mount_config_t config = {
         .format_if_mount_failed = true,
+        .max_files = 5,
+        .allocation_unit_size = CONFIG_WL_SECTOR_SIZE,
+        .disk_status_check_enable = false,
+        .use_one_fat = false,
     };
-    esp_err_t result = esp_vfs_spiffs_register(&config);
+    esp_err_t result =
+        esp_vfs_fat_spiflash_mount_rw_wl(kMountPoint, kPartition, &config, &wl_partition);
     if (result == ESP_OK) recover_cache();
     update_status([&](WallpaperStatus& value) {
         value.mounted = result == ESP_OK;
@@ -372,6 +430,25 @@ esp_err_t mount_cache() {
         copy_text(value.state, sizeof(value.state), result == ESP_OK ? "等待手机连接" : "缓存不可用");
     });
     return result;
+}
+
+// Worth another attempt: a dropped or stalled read, or a picture this device cannot render.
+// Not worth retrying: the request was cancelled, or the URL itself is wrong.
+bool retryable(esp_err_t result) {
+    switch (result) {
+        case ESP_ERR_HTTP_INCOMPLETE_DATA:
+        case ESP_ERR_HTTP_READ_TIMEOUT:
+        case ESP_ERR_HTTP_CONNECTION_CLOSED:
+        case ESP_ERR_HTTP_CONNECT:
+        case ESP_ERR_HTTP_EAGAIN:
+        case ESP_ERR_INVALID_SIZE:
+        case ESP_ERR_INVALID_RESPONSE:
+        case ESP_ERR_NOT_SUPPORTED:
+        case ESP_FAIL:
+            return true;
+        default:
+            return false;
+    }
 }
 
 esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info_t* info) {
@@ -382,8 +459,18 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
     update_status([](WallpaperStatus& value) {
         copy_text(value.state, sizeof(value.state), value.has_cache ? "正在换一张…" : "正在获取图片");
     });
-    esp_err_t result = download_image(url, info);
-    if (cancel_requested.load()) result = ESP_ERR_INVALID_STATE;
+    // The link is a BLE tunnel, so a read can fail part way through for no lasting reason,
+    // and the endpoint hands out a different picture per request, so a rejected one (too
+    // large to decode, or a format we do not handle) is worth one more roll of the dice.
+    // Both cases are a wasted refresh to the user if we give up after a single attempt.
+    esp_err_t result = ESP_FAIL;
+    for (unsigned attempt = 1; attempt <= kDownloadAttempts; ++attempt) {
+        result = download_image(url, info);
+        if (cancel_requested.load()) { result = ESP_ERR_INVALID_STATE; break; }
+        if (result == ESP_OK || !retryable(result) || attempt == kDownloadAttempts) break;
+        ESP_LOGW(tag, "attempt %u/%u failed (%s), retrying", attempt, kDownloadAttempts,
+                 esp_err_to_name(result));
+    }
     const char* target = result == ESP_OK ? image_path(info->format) : nullptr;
     if (result == ESP_OK && !target) result = ESP_ERR_NOT_SUPPORTED;
     if (result == ESP_OK) {

@@ -47,10 +47,32 @@ static wallpaper_format_result_t validate_jpeg(const uint8_t* data, size_t size,
             return WALLPAPER_FORMAT_TRUNCATED;
         }
         if (is_sof(marker)) {
+            // TJpgDec, which is the only JPEG decoder on the device, handles baseline SOF0
+            // and nothing else: every other SOF returns JDR_FMT3 (tjpgd.c:1073-1085). A
+            // progressive JPEG passes every other check here, so without this it would be
+            // downloaded, cached and then drawn as an empty rectangle.
+            if (marker != 0xc0) return WALLPAPER_FORMAT_UNSUPPORTED;
             if (segment_size < 8) return WALLPAPER_FORMAT_INVALID;
             found.height = (uint16_t)(((uint16_t)data[offset + 3] << 8U) | data[offset + 4]);
             found.width = (uint16_t)(((uint16_t)data[offset + 5] << 8U) | data[offset + 6]);
             if (found.width == 0 || found.height == 0) return WALLPAPER_FORMAT_INVALID;
+
+            // tjpgd.c:991-1007: grayscale or Y/Cb/Cr only, and of the chroma layouts only
+            // 4:4:4, 4:2:2 and 4:2:0, with Cb/Cr sampled 1x1.
+            const uint8_t components = data[offset + 7];
+            if (components != 1 && components != 3) return WALLPAPER_FORMAT_UNSUPPORTED;
+            if (segment_size < (size_t)(8 + 3 * components)) return WALLPAPER_FORMAT_INVALID;
+            for (uint8_t index = 0; index < components; ++index) {
+                const uint8_t sampling = data[offset + 9 + 3 * index];
+                if (index == 0) {
+                    if (sampling != 0x11 && sampling != 0x21 && sampling != 0x22) {
+                        return WALLPAPER_FORMAT_UNSUPPORTED;
+                    }
+                } else if (sampling != 0x11) {
+                    return WALLPAPER_FORMAT_UNSUPPORTED;
+                }
+                if (data[offset + 10 + 3 * index] > 3) return WALLPAPER_FORMAT_INVALID;
+            }
         }
         if (marker == 0xda) break;  // Entropy data ends at the already-checked EOI marker.
         offset += segment_size;

@@ -29,6 +29,7 @@ typedef enum {
     WALLPAPER_FORMAT_INVALID,
     WALLPAPER_FORMAT_TOO_LARGE,
     WALLPAPER_FORMAT_TRUNCATED,
+    WALLPAPER_FORMAT_UNSUPPORTED,  // well formed, but beyond what the on-device decoder handles
 } wallpaper_format_result_t;
 
 wallpaper_format_result_t wallpaper_media_validate(const uint8_t* data, size_t size,
