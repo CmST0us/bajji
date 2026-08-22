@@ -127,6 +127,36 @@ static void time_sync_frame(void) {
     assert(memcmp(parsed.payload, epoch, sizeof(epoch)) == 0);
 }
 
+static void control_frames_and_crc(void) {
+    const bridge_frame_t valid[] = {
+        {.type = BRIDGE_TYPE_SETTINGS_GET, .payload_len = 0},
+        {.type = BRIDGE_TYPE_SETTINGS_SET, .payload_len = 5},
+        {.type = BRIDGE_TYPE_SETTINGS_STATE, .payload_len = 6},
+        {.type = BRIDGE_TYPE_WALLPAPER_BEGIN, .payload_len = 10},
+        {.type = BRIDGE_TYPE_WALLPAPER_CHUNK, .payload_len = 5},
+        {.type = BRIDGE_TYPE_WALLPAPER_COMMIT, .payload_len = 0},
+        {.type = BRIDGE_TYPE_WALLPAPER_CANCEL, .payload_len = 0},
+        {.type = BRIDGE_TYPE_WALLPAPER_RESULT, .payload_len = 6},
+    };
+    uint8_t encoded[BRIDGE_MAX_FRAME_SIZE];
+    for (size_t index = 0; index < sizeof(valid) / sizeof(valid[0]); ++index) {
+        assert(bridge_encode(&valid[index], encoded, sizeof(encoded)) ==
+               BRIDGE_HEADER_SIZE + valid[index].payload_len);
+    }
+
+    bridge_frame_t invalid = {.type = BRIDGE_TYPE_WALLPAPER_CHUNK, .payload_len = 4};
+    assert(bridge_encode(&invalid, encoded, sizeof(encoded)) == 0);
+    invalid.type = BRIDGE_TYPE_SETTINGS_SET;
+    invalid.payload_len = 4;
+    assert(bridge_encode(&invalid, encoded, sizeof(encoded)) == 0);
+
+    static const uint8_t vector[] = "123456789";
+    uint32_t state = bridge_crc32_update(BRIDGE_CRC32_INITIAL, vector, 4);
+    state = bridge_crc32_update(state, vector + 4, 5);
+    assert(bridge_crc32_finish(state) == 0xcbf43926U);
+    assert(bridge_crc32(vector, 9) == 0xcbf43926U);
+}
+
 int main(void) {
     split_frame();
     coalesced_frames();
@@ -136,5 +166,6 @@ int main(void) {
     encodes_frame();
     clear_bond_frame();
     time_sync_frame();
+    control_frames_and_crc();
     return 0;
 }

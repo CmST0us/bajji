@@ -12,6 +12,14 @@ static int payload_length_valid(uint8_t type, uint16_t length) {
         case BRIDGE_TYPE_PONG:
         case BRIDGE_TYPE_TIME_SYNC: return length == 8;
         case BRIDGE_TYPE_CLEAR_BOND: return length == 0;
+        case BRIDGE_TYPE_SETTINGS_GET: return length == 0;
+        case BRIDGE_TYPE_SETTINGS_SET: return length == 5;
+        case BRIDGE_TYPE_SETTINGS_STATE: return length == 6;
+        case BRIDGE_TYPE_WALLPAPER_BEGIN: return length == 10;
+        case BRIDGE_TYPE_WALLPAPER_CHUNK: return length >= 5 && length <= BRIDGE_MAX_PAYLOAD;
+        case BRIDGE_TYPE_WALLPAPER_COMMIT:
+        case BRIDGE_TYPE_WALLPAPER_CANCEL: return length == 0;
+        case BRIDGE_TYPE_WALLPAPER_RESULT: return length == 6;
         case BRIDGE_TYPE_ERROR: return length == 2;
         default: return 0;
     }
@@ -89,4 +97,21 @@ size_t bridge_encode(const bridge_frame_t* frame, uint8_t* out, size_t capacity)
     out[7] = (uint8_t)frame->sequence;
     memcpy(out + BRIDGE_HEADER_SIZE, frame->payload, frame->payload_len);
     return size;
+}
+
+uint32_t bridge_crc32_update(uint32_t state, const uint8_t* bytes, size_t length) {
+    if (length && !bytes) return state;
+    for (size_t index = 0; index < length; ++index) {
+        state ^= bytes[index];
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            state = (state >> 1U) ^ (0xedb88320U & (0U - (state & 1U)));
+        }
+    }
+    return state;
+}
+
+uint32_t bridge_crc32_finish(uint32_t state) { return state ^ 0xffffffffU; }
+
+uint32_t bridge_crc32(const uint8_t* bytes, size_t length) {
+    return bridge_crc32_finish(bridge_crc32_update(BRIDGE_CRC32_INITIAL, bytes, length));
 }

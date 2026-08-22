@@ -22,6 +22,14 @@ struct BridgeFrame: Equatable, Sendable {
         case pong = 0x21
         case timeSync = 0x22
         case clearBond = 0x30
+        case settingsGet = 0x31
+        case settingsSet = 0x32
+        case settingsState = 0x33
+        case wallpaperBegin = 0x40
+        case wallpaperChunk = 0x41
+        case wallpaperCommit = 0x42
+        case wallpaperCancel = 0x43
+        case wallpaperResult = 0x44
         case error = 0x7F
 
         func accepts(length: Int) -> Bool {
@@ -30,7 +38,12 @@ struct BridgeFrame: Equatable, Sendable {
             case .helloAck: length == 7
             case .ipv4: (20...BridgeFrame.maximumPayload).contains(length)
             case .ping, .pong, .timeSync: length == 8
-            case .clearBond: length == 0
+            case .clearBond, .settingsGet, .wallpaperCommit, .wallpaperCancel: length == 0
+            case .settingsSet: length == 5
+            case .settingsState: length == 6
+            case .wallpaperBegin: length == 10
+            case .wallpaperChunk: (5...BridgeFrame.maximumPayload).contains(length)
+            case .wallpaperResult: length == 6
             case .error: length == 2
             }
         }
@@ -52,5 +65,16 @@ struct BridgeFrame: Equatable, Sendable {
         ])
         encoded.append(payload)
         return encoded
+    }
+
+    static func crc32<S: DataProtocol>(_ bytes: S) -> UInt32 {
+        var checksum = UInt32.max
+        for byte in bytes {
+            checksum ^= UInt32(byte)
+            for _ in 0..<8 {
+                checksum = (checksum >> 1) ^ (0xEDB88320 & (0 &- (checksum & 1)))
+            }
+        }
+        return checksum ^ UInt32.max
     }
 }

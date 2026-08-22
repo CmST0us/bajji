@@ -11,6 +11,7 @@ extern "C" {
 #define BRIDGE_HEADER_SIZE 8U
 #define BRIDGE_MAX_PAYLOAD 1280U
 #define BRIDGE_MAX_FRAME_SIZE (BRIDGE_HEADER_SIZE + BRIDGE_MAX_PAYLOAD)
+#define BRIDGE_CRC32_INITIAL 0xffffffffU
 
 typedef enum {
     BRIDGE_TYPE_HELLO = 0x01,
@@ -20,6 +21,14 @@ typedef enum {
     BRIDGE_TYPE_PONG = 0x21,
     BRIDGE_TYPE_TIME_SYNC = 0x22,
     BRIDGE_TYPE_CLEAR_BOND = 0x30,
+    BRIDGE_TYPE_SETTINGS_GET = 0x31,
+    BRIDGE_TYPE_SETTINGS_SET = 0x32,
+    BRIDGE_TYPE_SETTINGS_STATE = 0x33,
+    BRIDGE_TYPE_WALLPAPER_BEGIN = 0x40,
+    BRIDGE_TYPE_WALLPAPER_CHUNK = 0x41,
+    BRIDGE_TYPE_WALLPAPER_COMMIT = 0x42,
+    BRIDGE_TYPE_WALLPAPER_CANCEL = 0x43,
+    BRIDGE_TYPE_WALLPAPER_RESULT = 0x44,
     BRIDGE_TYPE_ERROR = 0x7f,
 } bridge_frame_type_t;
 
@@ -50,6 +59,10 @@ bridge_parse_result_t bridge_parser_feed(bridge_parser_t* parser, const uint8_t*
                                          size_t length, size_t* consumed, bridge_frame_t* out);
 
 size_t bridge_encode(const bridge_frame_t* frame, uint8_t* out, size_t capacity);
+
+uint32_t bridge_crc32_update(uint32_t state, const uint8_t* bytes, size_t length);
+uint32_t bridge_crc32_finish(uint32_t state);
+uint32_t bridge_crc32(const uint8_t* bytes, size_t length);
 
 #ifdef __cplusplus
 }

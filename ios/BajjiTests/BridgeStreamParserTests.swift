@@ -80,4 +80,29 @@ struct BridgeStreamParserTests {
         #expect(try parser.append(encoded) == [frame])
     }
 
+    @Test func validatesControlFramesAndCRC() throws {
+        let frames = [
+            BridgeFrame(type: .settingsGet, sequence: 1, payload: Data()),
+            BridgeFrame(type: .settingsSet, sequence: 2, payload: Data(repeating: 0, count: 5)),
+            BridgeFrame(type: .settingsState, sequence: 3, payload: Data(repeating: 0, count: 6)),
+            BridgeFrame(type: .wallpaperBegin, sequence: 4, payload: Data(repeating: 0, count: 10)),
+            BridgeFrame(type: .wallpaperChunk, sequence: 5, payload: Data(repeating: 0, count: 5)),
+            BridgeFrame(type: .wallpaperCommit, sequence: 6, payload: Data()),
+            BridgeFrame(type: .wallpaperCancel, sequence: 7, payload: Data()),
+            BridgeFrame(type: .wallpaperResult, sequence: 8, payload: Data(repeating: 0, count: 6))
+        ]
+        var parser = BridgeStreamParser()
+        let encoded = try frames.reduce(into: Data()) { $0.append(try $1.encode()) }
+        #expect(try parser.append(encoded) == frames)
+        #expect(BridgeFrame.crc32(Data("123456789".utf8)) == 0xCBF43926)
+
+        #expect(throws: BridgeProtocolError.invalidPayloadLength) {
+            try BridgeFrame(
+                type: .wallpaperChunk,
+                sequence: 9,
+                payload: Data(repeating: 0, count: 4)
+            ).encode()
+        }
+    }
+
 }
