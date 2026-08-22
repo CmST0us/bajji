@@ -8,6 +8,10 @@
 
 ---
 
+## 2026-08-22 · 设备中文字体已覆盖当前全部 UI 文案并烧写
+
+提交 `dc8a18d` 将 `bajji_font_16/20/24` 的中文与中文标点子集统一为 `diagnostics_ui.cpp` 当前使用的全部 214 个非 ASCII 字符，补齐配网页面此前缺少的 16 px 26 字、20 px 201 字和 24 px 170 字；没有加入数千个未使用的常用汉字，避免无谓占用 Flash。字符覆盖脚本核对、host tests 与 ESP-IDF 6.0 全量构建通过，固件 `0x2588b0`，app 分区余量 61%。已烧写 `/dev/cu.usbmodem101`，启动版本 `v0.0.1-24-gdc8a18d`，硬件、UI 壁纸解码与 Wi-Fi 关联正常；仍需人工浏览各设置/配网页确认实际观感。
+
 ## 2026-08-22 · SoftAP Captive Portal STA 配网已实现并烧写，待手动走完 Portal
 
 提交 `a1e4c9e`、`1b12696`、`62e3653` 已实现设备侧 SoftAP 配网：StopWatch 设置页新增第 3 行 Wi-Fi 入口，启动后显示每会话随机 WPA2 热点名/12 位密码、`bajji.setup`、5 分钟倒计时和连接状态。设备使用原生 APSTA；STA 关联和 DHCP 期间 AP、DNS 与 HTTP Portal 保持运行，成功写入 Flash 后延迟 10 秒关闭，失败保留所选 SSID、清除密码并允许原地重试。
