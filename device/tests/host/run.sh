@@ -35,6 +35,13 @@ cc -std=c11 -Wall -Wextra -Werror \
 "$out_dir/test_wifi_provision"
 
 cc -std=c11 -Wall -Wextra -Werror \
+  -I"$device_dir/components/wifi_link/include" \
+  "$test_dir/test_wifi_portal_protocol.c" \
+  "$device_dir/components/wifi_link/wifi_portal_protocol.c" \
+  -o "$out_dir/test_wifi_portal_protocol"
+"$out_dir/test_wifi_portal_protocol"
+
+cc -std=c11 -Wall -Wextra -Werror \
   -I"$device_dir/components/wallpaper/include" \
   "$test_dir/test_wallpaper_format.c" \
   "$device_dir/components/wallpaper/wallpaper_format.c" \

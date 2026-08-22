@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "wifi_link.c" "wifi_provision.c"
+    SRCS "wifi_link.c" "wifi_provision.c" "wifi_portal_protocol.c"
     INCLUDE_DIRS "include"
     REQUIRES esp_event esp_netif esp_timer esp_wifi ip_bridge lwip
 )
