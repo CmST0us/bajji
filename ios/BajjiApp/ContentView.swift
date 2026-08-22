@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
+import Observation
+import PhotosUI
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     let tunnel: TunnelManager
     let accessory: AccessoryManager
+    let wallpaper: WallpaperStore
 
     var body: some View {
         TabView {
@@ -15,13 +19,13 @@ struct ContentView: View {
 
             Tab("图片", systemImage: "photo.on.rectangle.angled") {
                 NavigationStack {
-                    ImagesHomeView()
+                    ImagesHomeView(accessory: accessory, wallpaper: wallpaper)
                 }
             }
 
             Tab("设置", systemImage: "gearshape") {
                 NavigationStack {
-                    SettingsHomeView(tunnel: tunnel, accessory: accessory)
+                    SettingsHomeView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
                 }
             }
         }
@@ -634,6 +638,11 @@ private struct BadgeValue {
 }
 
 private struct ImagesHomeView: View {
+    let accessory: AccessoryManager
+    let wallpaper: WallpaperStore
+    @State private var showsEditor = false
+    @State private var showsTransferStatus = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -642,42 +651,330 @@ private struct ImagesHomeView: View {
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 18) {
-                    StatusBadge("当前", color: .bajjiSuccess)
+                    StatusBadge(
+                        wallpaper.currentImage == nil ? "当前" : "待发送",
+                        color: wallpaper.currentImage == nil ? .bajjiSuccess : .bajjiWarning
+                    )
 
-                    BajjiArtwork()
-                        .frame(width: 208, height: 208)
-                        .frame(maxWidth: .infinity)
+                    Group {
+                        if let image = wallpaper.currentImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .clipShape(.circle)
+                                .overlay { Circle().stroke(Color.bajjiAccent, lineWidth: 3) }
+                        } else {
+                            BajjiArtwork()
+                        }
+                    }
+                    .frame(width: 208, height: 208)
+                    .frame(maxWidth: .infinity)
 
-                    Text("当前壁纸")
+                    Text(wallpaper.currentImage == nil ? "当前随机壁纸" : "我的图片")
                         .font(.title2.weight(.semibold))
-                    Text("圆形裁切 · 已应用到 StopWatch")
+                    Text(wallpaper.currentImage == nil ?
+                         "由 StopWatch 管理" : "468×468 · 已保存在 Bajji App")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Divider()
-                    Text("最近更新  尚未同步")
+                    Text(wallpaper.updatedAt.map {
+                        "最近更新  \($0.formatted(date: .abbreviated, time: .shortened))"
+                    } ?? "最近更新  尚未同步")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(18)
                 .bajjiCard()
 
-                NavigationLink("自定义图片") {
-                    Text("选择 Bajji 图片")
-                        .navigationTitle("自定义图片")
+                Button(wallpaper.currentImage == nil ? "自定义图片" : "更换图片") {
+                    showsEditor = true
                 }
                 .buttonStyle(BajjiPrimaryButtonStyle())
+
+                if wallpaper.currentImage != nil {
+                    Button("查看发送状态") { showsTransferStatus = true }
+                        .buttonStyle(BajjiOutlineButtonStyle())
+                }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("图片")
+        .sheet(isPresented: $showsEditor) {
+            WallpaperEditorView(wallpaper: wallpaper)
+        }
+        .sheet(isPresented: $showsTransferStatus) {
+            WallpaperTransferStatusView(accessory: accessory, wallpaper: wallpaper)
+        }
+    }
+}
+
+private struct WallpaperEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    let wallpaper: WallpaperStore
+    @State private var selectedItem: PhotosPickerItem?
+    @State private var importError: String?
+    @State private var dragOrigin: CGSize = .zero
+    @State private var zoomOrigin: CGFloat = 1
+    @State private var showsTransferStatus = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                if let image = wallpaper.draftImage {
+                    editor(image)
+                } else {
+                    pickerIntro
+                }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(wallpaper.draftImage == nil ? "自定义图片" : "调整预览")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        wallpaper.discardDraft()
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onChange(of: selectedItem) { _, item in
+            guard let item else { return }
+            Task {
+                do {
+                    try await wallpaper.importPhoto(item)
+                    dragOrigin = .zero
+                    zoomOrigin = 1
+                } catch {
+                    importError = error.localizedDescription
+                }
+            }
+        }
+        .alert("无法导入图片", isPresented: Binding(
+            get: { importError != nil },
+            set: { if !$0 { importError = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(importError ?? "未知错误")
+        }
+        .sheet(isPresented: $showsTransferStatus) {
+            WallpaperTransferStatusView(accessory: nil, wallpaper: wallpaper)
+        }
+    }
+
+    private var pickerIntro: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("从 iOS 照片选择器挑选一张图片。")
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 12) {
+                StatusBadge("系统界面", color: .bajjiAccent)
+                Text("使用 iOS 照片选择器")
+                    .font(.title2.weight(.semibold))
+                Text("只有你明确确认的项目会交给 Bajji；App 不需要浏览整个照片图库。")
+                    .foregroundStyle(.secondary)
+                Divider()
+                Text("选择器、权限与取消行为由 iOS 管理。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(18)
+            .bajjiCard()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("导入后处理")
+                    .font(.headline)
+                Text("支持常见照片格式；确认后生成 468×468 的圆形显示预览。")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(.rect(cornerRadius: 16))
+
+            Text("原图保留在系统照片库中；Bajji 仅保存预览所需的结果。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            PhotosPicker(selection: $selectedItem, matching: .images) {
+                Text("选择照片")
+            }
+            .buttonStyle(BajjiPrimaryButtonStyle())
+        }
+        .padding(24)
+    }
+
+    private func editor(_ image: UIImage) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("拖动和缩放图片，确认圆形表盘中的可见区域。")
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 16) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: wallpaper.displayMode.contentMode)
+                    .scaleEffect(wallpaper.zoom)
+                    .offset(wallpaper.offset)
+                    .frame(width: 208, height: 208)
+                    .background(.black)
+                    .clipShape(.circle)
+                    .overlay { Circle().stroke(Color.bajjiAccent, lineWidth: 3) }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Circle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                wallpaper.offset = CGSize(
+                                    width: dragOrigin.width + value.translation.width,
+                                    height: dragOrigin.height + value.translation.height
+                                )
+                            }
+                            .onEnded { _ in dragOrigin = wallpaper.offset }
+                    )
+                    .simultaneousGesture(
+                        MagnifyGesture()
+                            .onChanged { value in
+                                wallpaper.zoom = min(4, max(1, zoomOrigin * value.magnification))
+                            }
+                            .onEnded { _ in zoomOrigin = wallpaper.zoom }
+                    )
+                    .onTapGesture(count: 2) {
+                        wallpaper.resetTransform()
+                        dragOrigin = .zero
+                        zoomOrigin = 1
+                    }
+                    .accessibilityLabel("圆形壁纸预览")
+
+                Picker("显示方式", selection: Bindable(wallpaper).displayMode) {
+                    ForEach(WallpaperDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(format: "缩放  %.1f×", wallpaper.zoom))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(value: Bindable(wallpaper).zoom, in: 1...4, step: 0.1)
+                }
+
+                Divider()
+                Text("双指缩放 · 单指拖动 · 双击复位")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(18)
+            .bajjiCard()
+
+            Text("圆形以外的区域不会显示；保存前仍可返回重新选图。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Button("使用此预览") {
+                do {
+                    try wallpaper.saveDraft()
+                    showsTransferStatus = true
+                } catch {
+                    importError = error.localizedDescription
+                }
+            }
+            .buttonStyle(BajjiPrimaryButtonStyle())
+        }
+        .padding(24)
+    }
+}
+
+private struct WallpaperTransferStatusView: View {
+    @Environment(\.dismiss) private var dismiss
+    let accessory: AccessoryManager?
+    let wallpaper: WallpaperStore
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("预览资源已安全保存在 Bajji App；当前 Bridge v1 尚未提供手机向设备传图的消息。")
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        if let image = wallpaper.currentImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 72, height: 72)
+                                .clipShape(.circle)
+                        }
+                        StatusBadge("1 / 4 · 已准备", color: .bajjiWarning)
+                        TransferStep(number: "01", title: "准备圆形资源", detail: "468×468 JPEG 已保存在 App", state: .complete)
+                        TransferStep(number: "02", title: "发送到 StopWatch", detail: "等待固件与 Bridge 协议支持", state: .blocked)
+                        TransferStep(number: "03", title: "写入壁纸缓存", detail: "设备校验后才可替换旧图", state: .pending)
+                        TransferStep(number: "04", title: "应用并确认", detail: "收到设备显示回执后才算完成", state: .pending)
+                    }
+                    .padding(18)
+                    .bajjiCard()
+
+                    if accessory?.hasAccessory == false {
+                        Text("先添加 StopWatch；图片仍会保留在 App 中。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("未发送或传输失败不会覆盖设备当前壁纸。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    Button("完成") { dismiss() }
+                        .buttonStyle(BajjiPrimaryButtonStyle())
+                }
+                .padding(24)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("待发送")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct TransferStep: View {
+    enum State: Equatable { case complete, blocked, pending }
+    let number: String
+    let title: String
+    let detail: String
+    let state: State
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 30, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(color)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(state == .pending ? Color.secondary : color)
+            }
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .complete: .bajjiSuccess
+        case .blocked: .bajjiWarning
+        case .pending: .secondary
+        }
     }
 }
 
 private struct SettingsHomeView: View {
     let tunnel: TunnelManager
     let accessory: AccessoryManager
+    let wallpaper: WallpaperStore
 
     var body: some View {
         List {
@@ -690,8 +987,7 @@ private struct SettingsHomeView: View {
                     NetworkView(tunnel: tunnel, accessory: accessory)
                 }
                 NavigationLink("图片") {
-                    Text("当前壁纸")
-                        .navigationTitle("图片")
+                    ImagesHomeView(accessory: accessory, wallpaper: wallpaper)
                 }
             }
 
@@ -817,4 +1113,138 @@ private extension Color {
     static let bajjiDarkSurface = Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255)
     static let bajjiSuccess = Color(red: 27 / 255, green: 127 / 255, blue: 74 / 255)
     static let bajjiWarning = Color(red: 154 / 255, green: 91 / 255, blue: 0)
+}
+
+enum WallpaperDisplayMode: String, CaseIterable {
+    case fit
+    case fill
+
+    var label: String {
+        switch self {
+        case .fit: "适应"
+        case .fill: "填充"
+        }
+    }
+
+    var contentMode: ContentMode {
+        switch self {
+        case .fit: .fit
+        case .fill: .fill
+        }
+    }
+}
+
+@MainActor
+@Observable
+final class WallpaperStore {
+    private static let maximumImportBytes = 40 * 1024 * 1024
+    private static let maximumPixels: CGFloat = 50_000_000
+    private static let deviceSize = CGSize(width: 468, height: 468)
+
+    var currentImage: UIImage?
+    var draftImage: UIImage?
+    var displayMode: WallpaperDisplayMode = .fill
+    var zoom: CGFloat = 1
+    var offset: CGSize = .zero
+    var updatedAt: Date?
+
+    init() {
+        guard let data = try? Data(contentsOf: Self.savedImageURL),
+              let image = UIImage(data: data) else { return }
+        currentImage = image
+        updatedAt = (try? Self.savedImageURL.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+    }
+
+    func importPhoto(_ item: PhotosPickerItem) async throws {
+        guard let data = try await item.loadTransferable(type: Data.self) else {
+            throw WallpaperError.unreadableImage
+        }
+        guard data.count <= Self.maximumImportBytes,
+              let image = UIImage(data: data),
+              image.size.width * image.scale * image.size.height * image.scale <= Self.maximumPixels else {
+            throw WallpaperError.imageTooLarge
+        }
+        draftImage = image
+        resetTransform()
+    }
+
+    func saveDraft() throws {
+        guard let image = draftImage else { throw WallpaperError.unreadableImage }
+        let rendered = render(image)
+        guard let data = rendered.jpegData(compressionQuality: 0.9) else {
+            throw WallpaperError.couldNotEncode
+        }
+        try FileManager.default.createDirectory(
+            at: Self.savedImageURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: Self.savedImageURL, options: .atomic)
+        currentImage = rendered
+        updatedAt = Date()
+        draftImage = nil
+        resetTransform()
+    }
+
+    func discardDraft() {
+        draftImage = nil
+        resetTransform()
+    }
+
+    func resetTransform() {
+        zoom = 1
+        offset = .zero
+    }
+
+    private func render(_ image: UIImage) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: Self.deviceSize)
+        return renderer.image { context in
+            let canvas = CGRect(origin: .zero, size: Self.deviceSize)
+            UIColor.black.setFill()
+            context.fill(canvas)
+
+            context.cgContext.saveGState()
+            UIBezierPath(ovalIn: canvas).addClip()
+            let baseScale: CGFloat
+            switch displayMode {
+            case .fit:
+                baseScale = min(Self.deviceSize.width / image.size.width,
+                                Self.deviceSize.height / image.size.height)
+            case .fill:
+                baseScale = max(Self.deviceSize.width / image.size.width,
+                                Self.deviceSize.height / image.size.height)
+            }
+            let drawSize = CGSize(
+                width: image.size.width * baseScale * zoom,
+                height: image.size.height * baseScale * zoom
+            )
+            let previewToDevice = Self.deviceSize.width / 208
+            let origin = CGPoint(
+                x: (Self.deviceSize.width - drawSize.width) / 2 + offset.width * previewToDevice,
+                y: (Self.deviceSize.height - drawSize.height) / 2 + offset.height * previewToDevice
+            )
+            image.draw(in: CGRect(origin: origin, size: drawSize))
+            context.cgContext.restoreGState()
+        }
+    }
+
+    private static var savedImageURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Bajji", directoryHint: .isDirectory)
+            .appending(path: "wallpaper-preview.jpg")
+    }
+}
+
+private enum WallpaperError: LocalizedError {
+    case unreadableImage
+    case imageTooLarge
+    case couldNotEncode
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableImage: "无法读取所选照片。"
+        case .imageTooLarge: "图片过大，请选择小于 40 MB、5000 万像素的照片。"
+        case .couldNotEncode: "无法生成 StopWatch 预览资源。"
+        }
+    }
 }
