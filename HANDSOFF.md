@@ -8,17 +8,23 @@
 
 ---
 
+## 2026-08-22 · SoftAP 改为免密码并在设备页显示入网二维码
+
+提交 `343304d` 将配网 SoftAP 改为 `WIFI_AUTH_OPEN`，删除设备运行状态与 UI 中的热点密码；热点开启页新增 164 px、带静区的 LVGL 二维码，内容为 `WIFI:T:nopass;S:<SSID>;;`，并保留 SSID、`bajji.setup`、倒计时和停止按钮。新文案已同步到 16/20/24 px 字体子集，`CONFIG_LV_USE_QRCODE=y` 已写入 `sdkconfig.defaults` 并同步生成配置。
+
+host tests 与 ESP-IDF 6.0 全量构建通过，固件 `0x25af10`，app 分区余量 61%；已烧写 `/dev/cu.usbmodem101`，启动版本 `v0.0.1-26-g343304d`，UI 初始化、原保存网络关联及 DHCP 正常。**尚需在手表上点击“启动配网”，用 iPhone 相机确认二维码能直接加入开放热点，并目视确认圆屏底部文案与按钮未裁切。**
+
 ## 2026-08-22 · 设备中文字体已覆盖当前全部 UI 文案并烧写
 
 提交 `dc8a18d` 将 `bajji_font_16/20/24` 的中文与中文标点子集统一为 `diagnostics_ui.cpp` 当前使用的全部 214 个非 ASCII 字符，补齐配网页面此前缺少的 16 px 26 字、20 px 201 字和 24 px 170 字；没有加入数千个未使用的常用汉字，避免无谓占用 Flash。字符覆盖脚本核对、host tests 与 ESP-IDF 6.0 全量构建通过，固件 `0x2588b0`，app 分区余量 61%。已烧写 `/dev/cu.usbmodem101`，启动版本 `v0.0.1-24-gdc8a18d`，硬件、UI 壁纸解码与 Wi-Fi 关联正常；仍需人工浏览各设置/配网页确认实际观感。
 
 ## 2026-08-22 · SoftAP Captive Portal STA 配网已实现并烧写，待手动走完 Portal
 
-提交 `a1e4c9e`、`1b12696`、`62e3653` 已实现设备侧 SoftAP 配网：StopWatch 设置页新增第 3 行 Wi-Fi 入口，启动后显示每会话随机 WPA2 热点名/12 位密码、`bajji.setup`、5 分钟倒计时和连接状态。设备使用原生 APSTA；STA 关联和 DHCP 期间 AP、DNS 与 HTTP Portal 保持运行，成功写入 Flash 后延迟 10 秒关闭，失败保留所选 SSID、清除密码并允许原地重试。
+提交 `a1e4c9e`、`1b12696`、`62e3653` 已实现设备侧 SoftAP 配网：StopWatch 设置页新增第 3 行 Wi-Fi 入口，启动后显示热点名、`bajji.setup`、5 分钟倒计时和连接状态；`343304d` 又将热点改为免密码并新增扫码加入二维码。设备使用原生 APSTA；STA 关联和 DHCP 期间 AP、DNS 与 HTTP Portal 保持运行，成功写入 Flash 后延迟 10 秒关闭，失败保留所选 SSID、清除目标网络密码并允许原地重试。
 
-Portal 提供附近网络列表、密码输入、连接/成功/失败恢复状态；表单要求 128-bit 随机 token，只接受扫描结果索引和有界 URL 编码，DNS 与表单解析均有 host 测试。目标 STA 配置先用 `WIFI_STORAGE_RAM` 试连，只有 `IP_EVENT_STA_GOT_IP` 后才写 Flash；启动 APSTA 前会先停止 Wi-Fi 并在 RAM 中安装随机 AP 配置，避免旧 AP 短暂广播或随机热点密码落盘。BLE Wi-Fi Infrastructure 配网会先停止 Portal，再走原持久化路径。
+Portal 提供附近网络列表、密码输入、连接/成功/失败恢复状态；表单要求 128-bit 随机 token，只接受扫描结果索引和有界 URL 编码，DNS 与表单解析均有 host 测试。目标 STA 配置先用 `WIFI_STORAGE_RAM` 试连，只有 `IP_EVENT_STA_GOT_IP` 后才写 Flash；启动 APSTA 前会先停止 Wi-Fi 并在 RAM 中安装开放 AP 配置，避免旧 AP 短暂广播或会话 token 落盘。BLE Wi-Fi Infrastructure 配网会先停止 Portal，再走原持久化路径。
 
-host tests 与 ESP-IDF 6.0 全量构建通过，固件 `0x243dc0`；已完整烧写 `/dev/cu.usbmodem101`，启动后原保存网络成功关联并取得 `192.168.10.73`，无重启或崩溃。生成的 `device/sdkconfig` 明文凭据日志已关闭。**尚未手动点击“启动配网”并用 iPhone 验证 AP 信道切换、Captive Portal 自动弹出、失败重试和成功后 10 秒关闭**；下一步应保留串口日志走一遍这条真机流程。
+生成的 `device/sdkconfig` 明文凭据日志已关闭。完整的真机待测项以本文件顶部最新条目为准。
 
 ## 2026-08-22 · iOS 参数/壁纸控制与设备接收链路已实现，待真机端到端验证
 
