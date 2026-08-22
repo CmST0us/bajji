@@ -216,6 +216,11 @@ final class TunnelManager {
         ])
         var began = false
         do {
+            try? await sendWallpaperFrame(
+                type: .wallpaperCancel,
+                payload: Data(),
+                expectedOffset: 0
+            )
             try await sendWallpaperFrame(type: .wallpaperBegin, payload: begin, expectedOffset: 0)
             began = true
             progress(.sending, 0)

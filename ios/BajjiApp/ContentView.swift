@@ -19,7 +19,7 @@ struct ContentView: View {
 
             Tab("图片", systemImage: "photo.on.rectangle.angled") {
                 NavigationStack {
-                    ImagesHomeView(accessory: accessory, wallpaper: wallpaper)
+                    ImagesHomeView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
                 }
             }
 
@@ -638,6 +638,7 @@ private struct BadgeValue {
 }
 
 private struct ImagesHomeView: View {
+    let tunnel: TunnelManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
     @State private var showsEditor = false
@@ -652,8 +653,10 @@ private struct ImagesHomeView: View {
 
                 VStack(alignment: .leading, spacing: 18) {
                     StatusBadge(
-                        wallpaper.currentImage == nil ? "当前" : "待发送",
-                        color: wallpaper.currentImage == nil ? .bajjiSuccess : .bajjiWarning
+                        wallpaper.currentImage == nil ? "当前" :
+                            (wallpaper.needsTransfer ? "待发送" : "已同步"),
+                        color: wallpaper.currentImage == nil || !wallpaper.needsTransfer
+                            ? .bajjiSuccess : .bajjiWarning
                     )
 
                     Group {
@@ -673,7 +676,9 @@ private struct ImagesHomeView: View {
                     Text(wallpaper.currentImage == nil ? "当前随机壁纸" : "我的图片")
                         .font(.title2.weight(.semibold))
                     Text(wallpaper.currentImage == nil ?
-                         "由 StopWatch 管理" : "468×468 · 已保存在 Bajji App")
+                         "由 StopWatch 管理" :
+                            (wallpaper.needsTransfer ? "468×468 · 已保存在 Bajji App" :
+                                "468×468 · StopWatch 已确认"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Divider()
@@ -692,7 +697,9 @@ private struct ImagesHomeView: View {
                 .buttonStyle(BajjiPrimaryButtonStyle())
 
                 if wallpaper.currentImage != nil {
-                    Button("查看发送状态") { showsTransferStatus = true }
+                    Button(wallpaper.needsTransfer ? "发送到 StopWatch" : "查看发送状态") {
+                        showsTransferStatus = true
+                    }
                         .buttonStyle(BajjiOutlineButtonStyle())
                 }
             }
@@ -702,16 +709,18 @@ private struct ImagesHomeView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("图片")
         .sheet(isPresented: $showsEditor) {
-            WallpaperEditorView(wallpaper: wallpaper)
+            WallpaperEditorView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
         }
         .sheet(isPresented: $showsTransferStatus) {
-            WallpaperTransferStatusView(accessory: accessory, wallpaper: wallpaper)
+            WallpaperTransferStatusView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
         }
     }
 }
 
 private struct WallpaperEditorView: View {
     @Environment(\.dismiss) private var dismiss
+    let tunnel: TunnelManager
+    let accessory: AccessoryManager
     let wallpaper: WallpaperStore
     @State private var selectedItem: PhotosPickerItem?
     @State private var importError: String?
@@ -761,7 +770,7 @@ private struct WallpaperEditorView: View {
             Text(importError ?? "未知错误")
         }
         .sheet(isPresented: $showsTransferStatus) {
-            WallpaperTransferStatusView(accessory: nil, wallpaper: wallpaper)
+            WallpaperTransferStatusView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
         }
         .onChange(of: showsTransferStatus) { wasPresented, isPresented in
             if wasPresented && !isPresented { dismiss() }
@@ -892,14 +901,21 @@ private struct WallpaperEditorView: View {
 
 private struct WallpaperTransferStatusView: View {
     @Environment(\.dismiss) private var dismiss
-    let accessory: AccessoryManager?
+    let tunnel: TunnelManager
+    let accessory: AccessoryManager
     let wallpaper: WallpaperStore
+    @State private var phase = Phase.ready
+    @State private var progress = 0.0
+    @State private var errorMessage: String?
+    @State private var transferTask: Task<Void, Never>?
+
+    private enum Phase: Equatable { case ready, sending, validating, success, failure, cancelled }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("预览资源已安全保存在 Bajji App；当前 Bridge v1 尚未提供手机向设备传图的消息。")
+                    Text("图片会通过已配对的加密蓝牙链路发送；设备校验完成前不会替换当前壁纸。")
                         .foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: 18) {
@@ -910,39 +926,194 @@ private struct WallpaperTransferStatusView: View {
                                 .frame(width: 72, height: 72)
                                 .clipShape(.circle)
                         }
-                        StatusBadge("1 / 4 · 已准备", color: .bajjiWarning)
+                        StatusBadge(statusLabel, color: statusColor)
+                        if phase == .sending {
+                            ProgressView(value: progress) {
+                                Text("正在发送")
+                            } currentValueLabel: {
+                                Text(progress, format: .percent.precision(.fractionLength(0)))
+                            }
+                            .tint(.bajjiAccent)
+                            .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
+                        }
                         TransferStep(number: "01", title: "准备圆形资源", detail: "468×468 JPEG 已保存在 App", state: .complete)
-                        TransferStep(number: "02", title: "发送到 StopWatch", detail: "等待固件与 Bridge 协议支持", state: .blocked)
-                        TransferStep(number: "03", title: "写入壁纸缓存", detail: "设备校验后才可替换旧图", state: .pending)
-                        TransferStep(number: "04", title: "应用并确认", detail: "收到设备显示回执后才算完成", state: .pending)
+                        TransferStep(number: "02", title: "发送到 StopWatch", detail: transferDetail, state: transferStepState)
+                        TransferStep(number: "03", title: "校验壁纸文件", detail: "核对大小、CRC、格式与解码预算", state: validationStepState)
+                        TransferStep(number: "04", title: "原子替换并确认", detail: "设备回执成功后才更新当前壁纸", state: applyStepState)
                     }
                     .padding(18)
                     .bajjiCard()
 
-                    if accessory?.hasAccessory == false {
+                    if !accessory.hasAccessory {
                         Text("先添加 StopWatch；图片仍会保留在 App 中。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                    } else if tunnel.state == .connected &&
+                                tunnel.diagnostics?.bluetooth.state == "L2CAP ready" &&
+                                !supportsWallpaper {
+                        Text("当前 StopWatch 固件不支持手机传图，请先升级设备固件。")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    } else if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.08))
+                            .clipShape(.rect(cornerRadius: 14))
                     }
 
                     Text("未发送或传输失败不会覆盖设备当前壁纸。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
-                    Button("完成") { dismiss() }
-                        .buttonStyle(BajjiPrimaryButtonStyle())
+                    actionButton
                 }
                 .padding(24)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("待发送")
+            .navigationTitle(phase == .success ? "已发送" : "发送壁纸")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+            }
+        }
+        .task {
+            if !wallpaper.needsTransfer, wallpaper.currentImage != nil {
+                phase = .success
+                progress = 1
+            }
+            await tunnel.refresh()
+            while !Task.isCancelled {
+                await tunnel.readSnapshot()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        .onDisappear { transferTask?.cancel() }
+    }
+
+    @ViewBuilder private var actionButton: some View {
+        if phase == .sending || phase == .validating {
+            Button("取消传输", role: .cancel) { transferTask?.cancel() }
+                .buttonStyle(BajjiOutlineButtonStyle())
+        } else if phase == .success {
+            Button("完成") { dismiss() }
+                .buttonStyle(BajjiPrimaryButtonStyle())
+        } else if tunnel.state != .connected {
+            Button(controlConnectionTitle) {
+                Task {
+                    if tunnel.state == .notInstalled { await tunnel.install() }
+                    else { await tunnel.start() }
+                }
+            }
+            .buttonStyle(BajjiPrimaryButtonStyle())
+            .disabled(!accessory.hasAccessory || tunnel.isBusy || tunnel.state == .connecting)
+        } else {
+            Button(bridgeReady ? "发送到 StopWatch" : "正在连接 StopWatch…") {
+                startTransfer()
+            }
+            .buttonStyle(BajjiPrimaryButtonStyle())
+            .disabled(!bridgeReady || !supportsWallpaper || wallpaper.currentImage == nil)
+        }
+    }
+
+    private var bridgeReady: Bool {
+        tunnel.diagnostics?.bluetooth.state == "L2CAP ready"
+    }
+
+    private var controlConnectionTitle: String {
+        switch tunnel.state {
+        case .notInstalled: "安装 VPN 控制连接"
+        case .connecting, .reconnecting: "正在建立连接…"
+        default: "启动控制连接"
+        }
+    }
+
+    private var supportsWallpaper: Bool {
+        guard let capabilities = tunnel.diagnostics?.bluetooth.capabilities else { return false }
+        return capabilities & BridgeInfo.wallpaperCapability != 0
+    }
+
+    private var statusLabel: String {
+        switch phase {
+        case .ready: "已准备"
+        case .sending: "正在发送"
+        case .validating: "设备正在校验"
+        case .success: "设备已确认"
+        case .failure: "发送失败"
+        case .cancelled: "已取消"
+        }
+    }
+
+    private var statusColor: Color {
+        switch phase {
+        case .ready, .cancelled: .bajjiWarning
+        case .sending, .validating: .bajjiAccent
+        case .success: .bajjiSuccess
+        case .failure: .red
+        }
+    }
+
+    private var transferDetail: String {
+        phase == .sending ? progress.formatted(.percent.precision(.fractionLength(0))) :
+            (phase == .success || phase == .validating ? "全部分块已确认" : "等待开始")
+    }
+
+    private var transferStepState: TransferStep.State {
+        switch phase {
+        case .sending: .active
+        case .validating, .success: .complete
+        case .failure where progress < 1: .error
+        default: .pending
+        }
+    }
+
+    private var validationStepState: TransferStep.State {
+        switch phase {
+        case .validating: .active
+        case .success: .complete
+        case .failure where progress >= 1: .error
+        default: .pending
+        }
+    }
+
+    private var applyStepState: TransferStep.State {
+        phase == .success ? .complete : .pending
+    }
+
+    private func startTransfer() {
+        guard transferTask == nil else { return }
+        phase = .sending
+        progress = 0
+        errorMessage = nil
+        transferTask = Task {
+            do {
+                let data = try wallpaper.transferData()
+                try await tunnel.sendWallpaper(data) { stage, value in
+                    progress = value
+                    switch stage {
+                    case .sending: phase = .sending
+                    case .validating: phase = .validating
+                    case .complete: phase = .success
+                    }
+                }
+                wallpaper.markSent()
+            } catch is CancellationError {
+                phase = .cancelled
+            } catch {
+                errorMessage = error.localizedDescription
+                phase = .failure
+            }
+            transferTask = nil
         }
     }
 }
 
 private struct TransferStep: View {
-    enum State: Equatable { case complete, blocked, pending }
+    enum State: Equatable { case complete, active, error, pending }
     let number: String
     let title: String
     let detail: String
@@ -968,7 +1139,8 @@ private struct TransferStep: View {
     private var color: Color {
         switch state {
         case .complete: .bajjiSuccess
-        case .blocked: .bajjiWarning
+        case .active: .bajjiAccent
+        case .error: .red
         case .pending: .secondary
         }
     }
@@ -989,9 +1161,9 @@ private struct SettingsHomeView: View {
 
             Section("STOPWATCH") {
                 NavigationLink {
-                    StopWatchParametersView(wallpaper: wallpaper)
+                    StopWatchParametersView(tunnel: tunnel, wallpaper: wallpaper)
                 } label: {
-                    SettingsRowLabel(title: "StopWatch 参数", detail: "亮度、换图与触感")
+                    SettingsRowLabel(title: "StopWatch 参数", detail: "亮度、显示与换图")
                 }
                 NavigationLink {
                     NetworkView(tunnel: tunnel, accessory: accessory)
@@ -999,11 +1171,12 @@ private struct SettingsHomeView: View {
                     SettingsRowLabel(title: "网络与 VPN", detail: "Wi‑Fi 优先")
                 }
                 NavigationLink {
-                    ImagesHomeView(accessory: accessory, wallpaper: wallpaper)
+                    ImagesHomeView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
                 } label: {
                     SettingsRowLabel(
                         title: "图片",
-                        detail: wallpaper.currentImage == nil ? "随机壁纸" : "待发送"
+                        detail: wallpaper.currentImage == nil ? "随机壁纸" :
+                            (wallpaper.needsTransfer ? "待发送" : "已同步")
                     )
                 }
             }
@@ -1051,11 +1224,17 @@ private struct SettingsRowLabel: View {
 }
 
 private struct StopWatchParametersView: View {
+    let tunnel: TunnelManager
     let wallpaper: WallpaperStore
     @AppStorage("bajji.brightness") private var brightness = 0.72
     @AppStorage("bajji.autoRefresh") private var autoRefresh = true
     @AppStorage("bajji.refreshMinutes") private var refreshMinutes = 30
     @AppStorage("bajji.haptics") private var haptics = true
+    @State private var isSyncing = false
+    @State private var didLoadDeviceValues = false
+    @State private var syncMessage: String?
+    @State private var syncFailed = false
+    @State private var syncSuccessCount = 0
 
     var body: some View {
         Form {
@@ -1090,17 +1269,109 @@ private struct StopWatchParametersView: View {
                     }
                 }
 
-                Toggle("触感反馈", isOn: $haptics)
+                Toggle("iPhone 操作触感", isOn: $haptics)
             }
 
             Section {
-                Text("这些值会保存在 App 中。当前 Bridge v1 尚未提供设备参数消息，设备确认与失败回滚会在协议支持后启用。")
+                parameterAction
+                if let syncMessage {
+                    Label(syncMessage, systemImage: syncFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(syncFailed ? Color.red : Color.bajjiSuccess)
+                }
+            } footer: {
+                Text("亮度、显示方式与换图间隔会在设备确认后生效；iPhone 操作触感仅保存在本机。")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("StopWatch 参数")
-        .sensoryFeedback(.selection, trigger: haptics)
+        .task {
+            await tunnel.refresh()
+            while !Task.isCancelled {
+                await tunnel.readSnapshot()
+                if canSync && !didLoadDeviceValues { await loadDeviceValues() }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        .onChange(of: autoRefresh) { _, enabled in
+            if enabled && refreshMinutes == 0 { refreshMinutes = 30 }
+        }
+        .sensoryFeedback(.success, trigger: syncSuccessCount) { _, _ in haptics }
+    }
+
+    @ViewBuilder private var parameterAction: some View {
+        if tunnel.state != .connected {
+            Button(tunnel.state == .notInstalled ? "安装 VPN 控制连接" :
+                    (tunnel.state == .connecting ? "正在建立连接…" : "启动控制连接")) {
+                Task {
+                    if tunnel.state == .notInstalled { await tunnel.install() }
+                    else { await tunnel.start() }
+                }
+            }
+            .disabled(tunnel.isBusy || tunnel.state == .connecting)
+        } else if bridgeReady && !supportsSettings {
+            Button("需要升级 StopWatch 固件") {}
+                .disabled(true)
+        } else {
+            Button(bridgeReady ? "应用到 StopWatch" : "正在连接 StopWatch…") {
+                Task { await applyDeviceValues() }
+            }
+            .disabled(!canSync || isSyncing)
+        }
+    }
+
+    private var bridgeReady: Bool {
+        tunnel.diagnostics?.bluetooth.state == "L2CAP ready"
+    }
+
+    private var supportsSettings: Bool {
+        guard let capabilities = tunnel.diagnostics?.bluetooth.capabilities else { return false }
+        return capabilities & BridgeInfo.settingsCapability != 0
+    }
+
+    private var canSync: Bool { tunnel.state == .connected && bridgeReady && supportsSettings }
+
+    private func loadDeviceValues() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            updateForm(try await tunnel.readDeviceSettings())
+            didLoadDeviceValues = true
+            syncMessage = "已读取 StopWatch 当前参数"
+            syncFailed = false
+        } catch {
+            didLoadDeviceValues = true
+            syncMessage = error.localizedDescription
+            syncFailed = true
+        }
+    }
+
+    private func applyDeviceValues() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        let settings = DeviceSettings(
+            brightnessPercent: UInt8(clamping: Int((brightness * 100).rounded())),
+            displayMode: wallpaper.displayMode == .fit ? .fitBlur : .cover,
+            autoRefreshMinutes: autoRefresh ? UInt16(clamping: refreshMinutes) : 0
+        )
+        do {
+            updateForm(try await tunnel.applyDeviceSettings(settings))
+            syncMessage = "StopWatch 已应用并保存参数"
+            syncFailed = false
+            syncSuccessCount += 1
+        } catch {
+            if let current = try? await tunnel.readDeviceSettings() { updateForm(current) }
+            syncMessage = error.localizedDescription + " 已重新读取设备当前值。"
+            syncFailed = true
+        }
+    }
+
+    private func updateForm(_ settings: DeviceSettings) {
+        brightness = Double(settings.brightnessPercent) / 100
+        wallpaper.displayMode = settings.displayMode == .fitBlur ? .fit : .fill
+        autoRefresh = settings.autoRefreshMinutes > 0
+        refreshMinutes = Int(settings.autoRefreshMinutes)
     }
 
     private var intervalLabel: String {
@@ -1486,12 +1757,19 @@ final class WallpaperStore {
     var zoom: CGFloat = 1
     var offset: CGSize = .zero
     var updatedAt: Date?
+    var lastSentAt: Date?
+
+    var needsTransfer: Bool {
+        guard currentImage != nil, let updatedAt else { return false }
+        return lastSentAt.map { $0 < updatedAt } ?? true
+    }
 
     init() {
         if let rawValue = UserDefaults.standard.string(forKey: "bajji.wallpaperDisplayMode"),
            let savedMode = WallpaperDisplayMode(rawValue: rawValue) {
             displayMode = savedMode
         }
+        lastSentAt = UserDefaults.standard.object(forKey: "bajji.wallpaperLastSentAt") as? Date
         guard let data = try? Data(contentsOf: Self.savedImageURL),
               let image = UIImage(data: data) else { return }
         currentImage = image
@@ -1532,6 +1810,17 @@ final class WallpaperStore {
     func discardDraft() {
         draftImage = nil
         resetTransform()
+    }
+
+    func transferData() throws -> Data {
+        let data = try Data(contentsOf: Self.savedImageURL)
+        guard !data.isEmpty else { throw WallpaperError.unreadableImage }
+        return data
+    }
+
+    func markSent() {
+        lastSentAt = Date()
+        UserDefaults.standard.set(lastSentAt, forKey: "bajji.wallpaperLastSentAt")
     }
 
     func resetTransform() {
