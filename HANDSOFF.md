@@ -8,11 +8,11 @@
 
 ---
 
-## 2026-08-22 · Bajji iOS 高保真 App 已按 Figma 实现
+## 2026-08-22 · iOS 参数/壁纸控制与设备接收链路已实现，待真机端到端验证
 
-提交 `b05abcb`、`29228c8`、`5adb391`、`ed6c392`、`d7c2577` 已实现三栏原生 SwiftUI App、AccessorySetupKit 添加流程、Wi‑Fi Infrastructure 授权状态、Packet Tunnel 安装/启停、系统照片选择与 468×468 圆形预览、参数持久化、诊断和安全解绑。iPhoneOS Debug 完整构建、Swift 11/11 测试通过；iPhone 17 Pro 模拟器已验收设备/图片/设置流程、系统 Photo Picker、明暗模式与辅助阅读字号，运行日志无 App 错误。
+提交 `241ca5b`、`ac16ad5`、`3fd7a33`、`994123c` 已补齐 Bridge v1 的设备参数与壁纸传输：Packet Tunnel 在现有加密 L2CAP CoC 上串行请求/响应；设置包含亮度、显示方式与自动换图间隔；壁纸使用 1024-byte 分块 ACK、大小/顺序/CRC/格式/解码预算校验、临时文件与原子替换，取消、失败、断链不覆盖旧图。设备端文件/NVS 操作位于独立控制任务，不阻塞 NimBLE host；BridgeInfo 能力位为 `0x1f`，旧固件会被 UI 明确拦截。
 
-当前 Bridge v1 没有手机传图或设备参数消息，因此 App 会保存派生壁纸和参数，并明确显示“待发送/协议尚未支持”，不会伪造设备成功回执。宿主用 `canImport(WiFiInfrastructure)` 提供模拟器降级，但完整 simulator scheme 仍会因真机专用的 Wi‑Fi Sharing Extension 无法导入该框架而失败；视觉验收时只临时移除了 extension dependency，已原样恢复且工作树未留下工程文件改动。
+App 图片页现显示真实连接、逐块进度、设备校验、成功、失败和取消状态；只有 COMMIT 回执成功才记为已发送。参数页进入后读取设备值，应用后以设备回显为准，失败会重新读取实际值；iPhone 触感保持 App 本地设置。Swift 12/12 测试、iPhoneOS Debug 完整构建、设备 host tests 与 ESP-IDF 6.0 完整构建均通过，固件大小 `0x239530`。尚未在真机上验证整张 468×468 JPEG 传输、传输中断电/断链、NVS 写失败和屏幕刷新时序。
 
 ## 2026-08-22 · 图片设置保存已支持 Wi-Fi 上行，待真机复测
 
