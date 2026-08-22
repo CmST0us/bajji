@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-08-22 · SoftAP Captive Portal STA 配网已实现并烧写，待手动走完 Portal
+
+提交 `a1e4c9e`、`1b12696`、`62e3653` 已实现设备侧 SoftAP 配网：StopWatch 设置页新增第 3 行 Wi-Fi 入口，启动后显示每会话随机 WPA2 热点名/12 位密码、`bajji.setup`、5 分钟倒计时和连接状态。设备使用原生 APSTA；STA 关联和 DHCP 期间 AP、DNS 与 HTTP Portal 保持运行，成功写入 Flash 后延迟 10 秒关闭，失败保留所选 SSID、清除密码并允许原地重试。
+
+Portal 提供附近网络列表、密码输入、连接/成功/失败恢复状态；表单要求 128-bit 随机 token，只接受扫描结果索引和有界 URL 编码，DNS 与表单解析均有 host 测试。目标 STA 配置先用 `WIFI_STORAGE_RAM` 试连，只有 `IP_EVENT_STA_GOT_IP` 后才写 Flash；启动 APSTA 前会先停止 Wi-Fi 并在 RAM 中安装随机 AP 配置，避免旧 AP 短暂广播或随机热点密码落盘。BLE Wi-Fi Infrastructure 配网会先停止 Portal，再走原持久化路径。
+
+host tests 与 ESP-IDF 6.0 全量构建通过，固件 `0x243dc0`；已完整烧写 `/dev/cu.usbmodem101`，启动后原保存网络成功关联并取得 `192.168.10.73`，无重启或崩溃。生成的 `device/sdkconfig` 明文凭据日志已关闭。**尚未手动点击“启动配网”并用 iPhone 验证 AP 信道切换、Captive Portal 自动弹出、失败重试和成功后 10 秒关闭**；下一步应保留串口日志走一遍这条真机流程。
+
 ## 2026-08-22 · iOS 参数/壁纸控制与设备接收链路已实现，待真机端到端验证
 
 提交 `241ca5b`、`ac16ad5`、`3fd7a33`、`994123c` 已补齐 Bridge v1 的设备参数与壁纸传输：Packet Tunnel 在现有加密 L2CAP CoC 上串行请求/响应；设置包含亮度、显示方式与自动换图间隔；壁纸使用 1024-byte 分块 ACK、大小/顺序/CRC/格式/解码预算校验、临时文件与原子替换，取消、失败、断链不覆盖旧图。设备端文件/NVS 操作位于独立控制任务，不阻塞 NimBLE host；BridgeInfo 能力位为 `0x1f`，旧固件会被 UI 明确拦截。
@@ -83,8 +91,6 @@ iPhone 16 Pro Max / iOS 26.6 带日志版本实测：宿主 `requestAuthorizatio
 后续日志确认 Share 已到 `poweredOn(5)` 并开始连接，但此时反复点 Add 会报 `CBManagers active with global permissions`。根因是 Share 创建的全局权限 `CBCentralManager` 仍存活，且 UI 没有互斥两个操作。现已让 Add/Share 共用 `isBusy`，Share 前检查 `CBManager.authorization`（首次由系统弹窗申请，拒绝/受限时提示 Settings），并在 Share 结束或失败时取消连接、释放 manager；Add 继续交给 AccessorySetupKit picker 获取自身授权，避免为它预先创建全局 manager。`swift test` 11/11 和 iPhoneOS 完整构建通过，**仍待重新安装真机验证**。当前 session 已有 3 条 accessory 记录，本改动不会自动清理旧记录。
 
 最新真机日志已经看到 19-byte provisioning GATT write、WPA3 payload 解码与配置保存，证明 ASK/Wi-Fi Infrastructure/ATE/BLE 下发链路已完整打通。随后持续 `reason=211`，ESP-IDF 定义为 AP 被 `threshold.authmode` 过滤；根因是 Apple `securityPolicy` 是允许模式集合，iOS 却优先取最强的 WPA3，使 WPA2/WPA3 transition 网络被当成 WPA3-only。现已改为带密码网络取最低允许模式作为 scan threshold，OWE 按 ESP-IDF 要求使用 open threshold 并保留 `owe_enabled`。另在成功发起连接时取消旧 reconnect timer，避免日志中的 `sta is connecting / ESP_ERR_WIFI_CONN` 竞争；新增 iOS policy 集合、设备 reason 名称/RSSI/auth threshold 日志。host tests、Swift 11/11、iPhoneOS 和 ESP-IDF 完整构建均通过，固件大小 `0x2370a0`；重新安装和烧写后，用户已确认配网与连接逻辑打通。
-
-按本轮调试要求临时开启了明文 Wi-Fi 凭据日志：iOS 仅 `DEBUG` 编译输出；固件由 `CONFIG_BAJJI_WIFI_LOG_CREDENTIALS` 控制，仓库默认关闭，但当前生成的 `device/sdkconfig` 已设为 `y`。日志前缀为 `SENSITIVE debug credentials`。定位完成后应关闭开关并清理已采集日志，避免 SSID/密码泄露。
 
 设备 disconnect reason `534` 为本地主机终止，`531` 为 iPhone 终止，随后都成功重连，不是 Wi-Fi 配网根因。完整观察、排除项和下一步见 [`wiki/wifi-infrastructure-provisioning.md`](wiki/wifi-infrastructure-provisioning.md)。
 
