@@ -26,8 +26,13 @@
 
 void ble_store_config_init(void);
 
+// tx_queue is kQueueCapacity slots of ~1.3 KB in internal .bss, so size it to what lwip can
+// actually hand us: CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5760 is ~5 full segments in flight, and the
+// TCP_SND_QUEUELEN ceiling is ~17 small ones. Overflow is not fatal - ble_link_send() returns
+// ESP_ERR_NO_MEM, ip_bridge.c:97 maps it to ERR_MEM and TCP retransmits - while at the measured
+// 2.5-6 KB/s link rate every extra slot is only queueing delay, never goodput.
 // sdkconfig.defaults uses one CoC RX SDU slot; two blocks cover one MTU plus mbuf overhead.
-enum { kQueueCapacity = 32, kReceiveBufferCount = 2 };
+enum { kQueueCapacity = 16, kReceiveBufferCount = 2 };
 static const char* tag = "ble_link";
 static const ble_uuid128_t service_uuid = BLE_UUID128_INIT(
     0x21, 0xb3, 0x20, 0x2f, 0x9e, 0x3a, 0x54, 0xa8,
@@ -416,6 +421,28 @@ static void respond(const bridge_frame_t* received) {
     }
 }
 
+// The 15 ms interval request is deliberately independent of the 2M PHY outcome: a 1M link at
+// 15 ms still doubles the CoC round trips per interval versus the ~30 ms iOS picks by default.
+// Peers without LE 2M (iPhone 7 and older) complete the PHY procedure with a non-zero status,
+// and ble_gap_set_prefered_le_phy() can fail outright; gating the request on either used to
+// leave those sessions at the peer's interval for their whole lifetime.
+static void request_fast_connection_interval(void) {
+    const struct ble_gap_upd_params params = {
+        .itvl_min = 12,
+        .itvl_max = 12,
+        .latency = 0,
+        .supervision_timeout = 400,
+        .min_ce_len = 0,
+        .max_ce_len = 0,
+    };
+    const int result = ble_gap_update_params(connection_handle, &params);
+    if (result == 0) {
+        ESP_LOGI(tag, "requested 15 ms connection interval");
+    } else {
+        ESP_LOGW(tag, "could not request 15 ms connection interval: %d", result);
+    }
+}
+
 static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
     (void)argument;
     switch (event->type) {
@@ -456,6 +483,8 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
                 } else {
                     preferred_phy_pending = false;
                     ESP_LOGW(tag, "could not request 2M PHY: %d", result);
+                    // No PHY procedure is in flight, so the interval request can go out now.
+                    request_fast_connection_interval();
                 }
             } else {
                 ESP_LOGE(tag, "could not read CoC channel information");
@@ -610,23 +639,9 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             }
             preferred_phy_pending = false;
             if (event->phy_updated.status != 0) {
-                ESP_LOGW(tag, "not requesting 15 ms after failed PHY update");
-                return 0;
+                ESP_LOGW(tag, "PHY update failed; still requesting 15 ms interval");
             }
-            const struct ble_gap_upd_params params = {
-                .itvl_min = 12,
-                .itvl_max = 12,
-                .latency = 0,
-                .supervision_timeout = 400,
-                .min_ce_len = 0,
-                .max_ce_len = 0,
-            };
-            const int result = ble_gap_update_params(connection_handle, &params);
-            if (result == 0) {
-                ESP_LOGI(tag, "requested 15 ms connection interval");
-            } else {
-                ESP_LOGW(tag, "could not request 15 ms connection interval: %d", result);
-            }
+            request_fast_connection_interval();
             return 0;
         }
         case BLE_GAP_EVENT_DATA_LEN_CHG:
