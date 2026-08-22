@@ -14,13 +14,13 @@
 
 顺带两处：模糊质量从 `LV_BLUR_QUALITY_PRECISION` 改回默认 AUTO（`lv_draw_sw_blur.c:77-86`，radius 24 时 skip_cnt 从 1 变 2，省 4 倍）；`BoardHal::poll()` 删掉 4 Hz 的 IMU 采样，`status_.imu_sample` 全仓库没有读者，而它每 250 ms 要抢触摸所在的那条 I2C 总线。PMIC/RTC 的 1 Hz 轮询**故意留着**，量小而且加电量/时间显示时就要用。
 
-**只跑了 host tests（通过），没有跑 `idf.py build`（共享 build 目录），也没有烧写真机。** 动画 WebP 的 fit 模式、以及 GIF/JPEG 回退路径需要真机各看一眼。
+**host tests 通过；随后的统一检查在混合工作树上跑完了完整 `idf.py build`（1836/1836，exit 0），但没有烧写真机。** 动画 WebP 的 fit 模式、以及 GIF/JPEG 回退路径需要真机各看一眼。
 
 ## 2026-08-22 · BLE 15 ms 间隔请求解除 PHY 依赖、TX 队列缩到 16，未编译未烧写
 
 `device/components/ble_link/ble_link.c`：15 ms 连接间隔请求抽成 `request_fast_connection_interval()`，PHY_UPDATE_COMPLETE 的成功/失败两条路径都发，`ble_gap_set_prefered_le_phy()` 同步失败时也立刻发（原来这三种情况会整条连接停在 iOS 默认的约 30 ms）。`kQueueCapacity` 32 → 16，省约 20.6 KB 内部 .bss；`kReceiveBufferCount` 之前已经是 2。
 
-**没跑 idf.py build**（共享 build 目录，按编排要求跳过），也没烧真机。host tests 通过。谁下一轮构建顺手确认一下这个文件能编过。
+host tests 通过；随后的统一检查在混合工作树上完整 `idf.py build` 通过，编译无恙。**没烧真机**——15 ms 间隔在 1M PHY 老设备上的实际效果、以及 TX 队列缩容后的高压场景要真机看。
 
 ## 2026-08-22 · 最新 Figma 设置与异常流程已实现，待烧写真机
 
