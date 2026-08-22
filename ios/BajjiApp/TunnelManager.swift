@@ -43,6 +43,17 @@ struct BluetoothDiagnostics: Decodable {
     let lastError: String
 }
 
+enum TunnelState {
+    case notInstalled
+    case installed
+    case connecting
+    case connected
+    case reconnecting
+    case disconnecting
+    case invalid
+    case unknown
+}
+
 @MainActor
 @Observable
 final class TunnelManager {
@@ -55,11 +66,13 @@ final class TunnelManager {
     var detail = "Install the VPN profile, then start the bridge."
     var diagnostics: TunnelDiagnostics?
     var isBusy = false
+    var state: TunnelState = .notInstalled
 
     func refresh() async {
         do {
             manager = try await loadManager()
-            status = manager.map { statusText($0.connection.status) } ?? "Not installed"
+            state = manager.map { tunnelState($0.connection.status) } ?? .notInstalled
+            status = statusText(state)
         } catch {
             detail = error.localizedDescription
         }
@@ -77,7 +90,8 @@ final class TunnelManager {
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
             self.manager = manager
-            self.status = "Installed"
+            self.state = .installed
+            self.status = self.statusText(self.state)
             self.detail = "VPN profile is ready."
         }
     }
@@ -89,27 +103,31 @@ final class TunnelManager {
             }
             self.manager = manager
             try manager.connection.startVPNTunnel()
-            self.status = "Connecting"
+            self.state = .connecting
+            self.status = self.statusText(self.state)
             self.detail = "Pair when prompted; the StopWatch will use the iPhone uplink."
         }
     }
 
     func stop() {
         manager?.connection.stopVPNTunnel()
-        status = "Disconnecting"
+        state = .disconnecting
+        status = statusText(state)
     }
 
     func readSnapshot() async {
         guard let session = manager?.connection as? NETunnelProviderSession,
               session.status == .connected else {
-            status = manager.map { statusText($0.connection.status) } ?? "Not installed"
+            state = manager.map { tunnelState($0.connection.status) } ?? .notInstalled
+            status = statusText(state)
             diagnostics = nil
             return
         }
         do {
             let data = try await send("snapshot", through: session)
             diagnostics = try JSONDecoder().decode(TunnelDiagnostics.self, from: data)
-            status = statusText(session.status)
+            state = tunnelState(session.status)
+            status = statusText(state)
         } catch {
             detail = error.localizedDescription
         }
@@ -159,15 +177,28 @@ final class TunnelManager {
         }
     }
 
-    private func statusText(_ value: NEVPNStatus) -> String {
+    private func tunnelState(_ value: NEVPNStatus) -> TunnelState {
         switch value {
-        case .invalid: "Invalid"
-        case .disconnected: "Disconnected"
+        case .invalid: .invalid
+        case .disconnected: .installed
+        case .connecting: .connecting
+        case .connected: .connected
+        case .reasserting: .reconnecting
+        case .disconnecting: .disconnecting
+        @unknown default: .unknown
+        }
+    }
+
+    private func statusText(_ value: TunnelState) -> String {
+        switch value {
+        case .notInstalled: "Not installed"
+        case .installed: "Ready"
         case .connecting: "Connecting"
         case .connected: "Connected"
-        case .reasserting: "Reconnecting"
+        case .reconnecting: "Reconnecting"
         case .disconnecting: "Disconnecting"
-        @unknown default: "Unknown"
+        case .invalid: "Invalid"
+        case .unknown: "Unknown"
         }
     }
 }

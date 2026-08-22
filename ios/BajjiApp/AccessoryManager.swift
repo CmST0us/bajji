@@ -6,6 +6,14 @@ import OSLog
 import UIKit
 import WiFiInfrastructure
 
+enum WiFiSharingState: Equatable {
+    case notShared
+    case authorizing
+    case shared
+    case restricted(String)
+    case failed(String)
+}
+
 @MainActor
 @Observable
 final class AccessoryManager: NSObject {
@@ -13,6 +21,8 @@ final class AccessoryManager: NSObject {
     var detail = "Add the StopWatch, then share the iPhone Wi-Fi network."
     var hasAccessory = false
     var isBusy = false
+    var isPairing = false
+    var wifiSharingState: WiFiSharingState = .notShared
 
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "AccessoryManager")
     private let session = ASAccessorySession()
@@ -48,7 +58,11 @@ final class AccessoryManager: NSObject {
         }
         releaseBluetoothConnection()
         isBusy = true
-        defer { isBusy = false }
+        isPairing = true
+        defer {
+            isBusy = false
+            isPairing = false
+        }
         logger.info("presenting AccessorySetupKit picker")
         do {
             try await session.showPicker(for: [Self.pickerItem])
@@ -69,16 +83,19 @@ final class AccessoryManager: NSObject {
         guard let accessory else {
             logger.error("Wi-Fi sharing rejected: no accessory")
             detail = "Add the StopWatch first."
+            wifiSharingState = .failed(detail)
             return
         }
         guard #available(iOS 26.2, *) else {
             logger.error("Wi-Fi sharing rejected: unsupported iOS version")
             detail = "Wi-Fi sharing requires iOS 26.2 or later."
+            wifiSharingState = .restricted(detail)
             return
         }
         if bluetoothAuthorization == .denied || bluetoothAuthorization == .restricted {
             logger.error("Wi-Fi sharing rejected: Bluetooth permission=\(bluetoothAuthorization.rawValue)")
             detail = "Allow Bluetooth for Bajji in Settings."
+            wifiSharingState = .restricted(detail)
             return
         }
         if bluetoothAuthorization == .notDetermined {
@@ -86,6 +103,7 @@ final class AccessoryManager: NSObject {
             detail = "Allow Bluetooth access to continue."
         }
         isBusy = true
+        wifiSharingState = .authorizing
         authorizationPending = true
         self.accessory = accessory
         if central == nil {
@@ -117,6 +135,9 @@ final class AccessoryManager: NSObject {
         self.accessory = accessory
         hasAccessory = accessory != nil
         status = accessory?.displayName ?? "Not added"
+        if accessory == nil {
+            wifiSharingState = .notShared
+        }
         logger.info("saved accessory state: present=\(accessory != nil) bluetooth_identifier=\(accessory?.bluetoothIdentifier != nil)")
     }
 
@@ -132,14 +153,14 @@ final class AccessoryManager: NSObject {
         }
         guard let identifier = accessory?.bluetoothIdentifier else {
             logger.error("authorization failed: accessory has no Bluetooth identifier")
-            finish("The paired StopWatch has no Bluetooth identifier.")
+            finish(.failed("The paired StopWatch has no Bluetooth identifier."))
             return
         }
         let peripherals = central.retrievePeripherals(withIdentifiers: [identifier])
         logger.info("retrieved paired peripherals: count=\(peripherals.count)")
         guard let peripheral = peripherals.first else {
             logger.error("authorization failed: paired peripheral unavailable")
-            finish("The paired StopWatch is not available over Bluetooth.")
+            finish(.failed("The paired StopWatch is not available over Bluetooth."))
             return
         }
         self.peripheral = peripheral
@@ -155,7 +176,7 @@ final class AccessoryManager: NSObject {
     private func authorize() {
         guard #available(iOS 26.2, *), let accessory else {
             logger.error("authorization aborted: accessory or platform unavailable")
-            finish("Wi-Fi sharing authorization is unavailable.")
+            finish(.restricted("Wi-Fi sharing authorization is unavailable."))
             return
         }
         authorizationPending = false
@@ -173,18 +194,37 @@ final class AccessoryManager: NSObject {
                     let resultDescription = String(describing: result)
                     logger.info("host ask-to-share UI completed: \(resultDescription, privacy: .public)")
                 }
-                finish("Wi-Fi sharing: \(String(describing: state)).")
+                finish(.shared)
             } catch {
                 logger.error("Wi-Fi sharing authorization failed: \(error.localizedDescription, privacy: .public)")
-                finish(error.localizedDescription)
+                let message = error.localizedDescription
+                let normalized = message.lowercased()
+                if normalized.contains("region") || normalized.contains("eligible") ||
+                    normalized.contains("restricted") || normalized.contains("entitlement") {
+                    finish(.restricted(message))
+                } else {
+                    finish(.failed(message))
+                }
             }
         }
     }
 
-    private func finish(_ message: String) {
+    private func finish(_ state: WiFiSharingState) {
+        let message: String
+        switch state {
+        case .notShared:
+            message = "Wi-Fi has not been shared."
+        case .authorizing:
+            message = "Waiting for iOS authorization."
+        case .shared:
+            message = "Wi-Fi credentials were securely shared with the StopWatch."
+        case .restricted(let reason), .failed(let reason):
+            message = reason
+        }
         logger.info("Wi-Fi sharing request finished: \(message, privacy: .public)")
         authorizationPending = false
         isBusy = false
+        wifiSharingState = state
         detail = message
         releaseBluetoothConnection()
     }
@@ -207,7 +247,7 @@ extension AccessoryManager: @MainActor CBCentralManagerDelegate {
         } else if authorizationPending &&
                     (central.state == .unauthorized || central.state == .unsupported) {
             logger.error("authorization failed: Bluetooth unavailable state=\(central.state.rawValue)")
-            finish("Bluetooth is unavailable.")
+            finish(.restricted("Bluetooth is unavailable."))
         } else if authorizationPending && central.state == .poweredOff {
             logger.info("authorization waiting for Bluetooth to power on")
             detail = "Turn on Bluetooth to continue."
@@ -222,6 +262,6 @@ extension AccessoryManager: @MainActor CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral,
                         error: Error?) {
         logger.error("paired peripheral connection failed: \(error?.localizedDescription ?? "no CoreBluetooth error", privacy: .public)")
-        finish(error?.localizedDescription ?? "Could not connect to the StopWatch.")
+        finish(.failed(error?.localizedDescription ?? "Could not connect to the StopWatch."))
     }
 }

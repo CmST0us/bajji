@@ -4,12 +4,12 @@
 
 ## 这个项目是干什么的
 
-Bajji 让 M5Stack StopWatch 通过 iPhone 上网。手表除了 BLE 没有别的射频，所以由手机跑一个 Packet Tunnel 扩展，把 IPv4 承载在 LE credit-based L2CAP 通道上。有了这条链路，手表就能自己去拉壁纸显示。
+Bajji 让 M5Stack StopWatch 优先通过自身 Wi-Fi 上网，Wi-Fi 不可用时降级到 iPhone。备用链路由手机运行 Packet Tunnel 扩展，把 IPv4 承载在 LE credit-based L2CAP 通道上；Wi-Fi 凭据由 AccessorySetupKit 与 Wi-Fi Infrastructure 经加密 BLE 下发。
 
 三块：
 
 - **`device/`** —— StopWatch 的 ESP-IDF v6.0 固件（ESP32-S3R8，16 MB flash，8 MB OPI PSRAM @ 80 MHz）。负责 BLE 从机、IP bridge 端点（`10.77.0.2/30`）、LVGL 界面和壁纸缓存。
-- **`ios/`** —— SwiftUI 宿主 App 加一个 `PacketTunnel` 网络扩展。CoreBluetooth 只归扩展管，路由只处理 `10.77.0.0/30`。
+- **`ios/`** —— SwiftUI 宿主 App、`PacketTunnel` 网络扩展和 Wi-Fi Sharing Accessory Transport Extension。Packet Tunnel 路由只处理 `10.77.0.0/30`。
 - **`protocol/`** —— 两端共用的线协议，规范在 [`protocol/bridge-v1.md`](protocol/bridge-v1.md)，附测试向量。
 
 其余目录：`docs/`（硬件说明、验证模板）、`wiki/`（工程经验，见下）、`scripts/`、`tools/`。
@@ -40,6 +40,7 @@ M5Stack StopWatch —— <https://docs.m5stack.com/en/core/StopWatch>
 | `components/ble_link/` | NimBLE 从机、配对绑定、L2CAP CoC |
 | `components/bridge_protocol/` | Bridge v1 帧格式，和 host 测试共用 |
 | `components/ip_bridge/` | 架在 CoC 上的 lwip netif |
+| `components/wifi_link/` | Wi-Fi Station、配网凭据解析与默认路由优先级 |
 | `components/ui/` | LVGL 界面（`diagnostics_ui.cpp`） |
 | `components/wallpaper/` | 壁纸的下载、校验、缓存、解码 |
 | `components/webp_decoder/` | libwebp 封装 |
