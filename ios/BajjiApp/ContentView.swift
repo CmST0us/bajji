@@ -763,6 +763,9 @@ private struct WallpaperEditorView: View {
         .sheet(isPresented: $showsTransferStatus) {
             WallpaperTransferStatusView(accessory: nil, wallpaper: wallpaper)
         }
+        .onChange(of: showsTransferStatus) { wasPresented, isPresented in
+            if wasPresented && !isPresented { dismiss() }
+        }
     }
 
     private var pickerIntro: some View {
@@ -978,25 +981,43 @@ private struct SettingsHomeView: View {
 
     var body: some View {
         List {
+            Section {
+                Text("管理 StopWatch、连接与 Bajji 行为。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("STOPWATCH") {
-                NavigationLink("StopWatch 参数") {
-                    Text("亮度、换图与触感")
-                        .navigationTitle("StopWatch 参数")
+                NavigationLink {
+                    StopWatchParametersView(wallpaper: wallpaper)
+                } label: {
+                    SettingsRowLabel(title: "StopWatch 参数", detail: "亮度、换图与触感")
                 }
-                NavigationLink("网络与 VPN") {
+                NavigationLink {
                     NetworkView(tunnel: tunnel, accessory: accessory)
+                } label: {
+                    SettingsRowLabel(title: "网络与 VPN", detail: "Wi‑Fi 优先")
                 }
-                NavigationLink("图片") {
+                NavigationLink {
                     ImagesHomeView(accessory: accessory, wallpaper: wallpaper)
+                } label: {
+                    SettingsRowLabel(
+                        title: "图片",
+                        detail: wallpaper.currentImage == nil ? "随机壁纸" : "待发送"
+                    )
                 }
             }
 
             Section("支持") {
-                NavigationLink("诊断与绑定") {
-                    Text(accessory.hasAccessory ? "已绑定" : "尚未绑定")
-                        .navigationTitle("诊断与绑定")
+                NavigationLink {
+                    DiagnosticsView(tunnel: tunnel, accessory: accessory)
+                } label: {
+                    SettingsRowLabel(
+                        title: "诊断与绑定",
+                        detail: accessory.hasAccessory ? "已绑定" : "尚未绑定"
+                    )
                 }
-                LabeledContent("Bajji", value: "版本 1.0")
+                LabeledContent("Bajji", value: "版本 \(appVersion)")
             }
 
             Section {
@@ -1006,6 +1027,293 @@ private struct SettingsHomeView: View {
             }
         }
         .navigationTitle("设置")
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+}
+
+private struct SettingsRowLabel: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct StopWatchParametersView: View {
+    let wallpaper: WallpaperStore
+    @AppStorage("bajji.brightness") private var brightness = 0.72
+    @AppStorage("bajji.autoRefresh") private var autoRefresh = true
+    @AppStorage("bajji.refreshMinutes") private var refreshMinutes = 30
+    @AppStorage("bajji.haptics") private var haptics = true
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    Text("屏幕亮度")
+                    Spacer()
+                    Text(brightness, format: .percent.precision(.fractionLength(0)))
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $brightness, in: 0.1...1, step: 0.01) {
+                    Text("屏幕亮度")
+                } minimumValueLabel: {
+                    Image(systemName: "sun.min")
+                } maximumValueLabel: {
+                    Image(systemName: "sun.max.fill")
+                }
+            }
+
+            Section {
+                Toggle("自动换图", isOn: $autoRefresh)
+                NavigationLink {
+                    RefreshIntervalView()
+                } label: {
+                    LabeledContent("刷新间隔", value: autoRefresh ? intervalLabel : "手动")
+                }
+                .disabled(!autoRefresh)
+
+                Picker("图片显示", selection: Bindable(wallpaper).displayMode) {
+                    ForEach(WallpaperDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+
+                Toggle("触感反馈", isOn: $haptics)
+            }
+
+            Section {
+                Text("这些值会保存在 App 中。当前 Bridge v1 尚未提供设备参数消息，设备确认与失败回滚会在协议支持后启用。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("StopWatch 参数")
+        .sensoryFeedback(.selection, trigger: haptics)
+    }
+
+    private var intervalLabel: String {
+        guard autoRefresh else { return "手动" }
+        return RefreshInterval(rawValue: refreshMinutes)?.label ?? "30 分钟"
+    }
+}
+
+private struct RefreshIntervalView: View {
+    @AppStorage("bajji.autoRefresh") private var autoRefresh = true
+    @AppStorage("bajji.refreshMinutes") private var refreshMinutes = 30
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(RefreshInterval.allCases, id: \.self) { option in
+                    Button {
+                        refreshMinutes = option.rawValue
+                        autoRefresh = option != .manual
+                    } label: {
+                        HStack {
+                            Text(option.label)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if refreshMinutes == option.rawValue {
+                                Image(systemName: "checkmark")
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(Color.bajjiAccent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                Text("间隔")
+            } footer: {
+                Text("自动换图关闭时不会计时；重新开启后从当前时刻开始。")
+            }
+        }
+        .navigationTitle("刷新间隔")
+    }
+}
+
+private enum RefreshInterval: Int, CaseIterable {
+    case fifteen = 15
+    case thirty = 30
+    case sixty = 60
+    case manual = 0
+
+    var label: String {
+        switch self {
+        case .fifteen: "15 分钟"
+        case .thirty: "30 分钟"
+        case .sixty: "1 小时"
+        case .manual: "手动"
+        }
+    }
+}
+
+private struct DiagnosticsView: View {
+    let tunnel: TunnelManager
+    let accessory: AccessoryManager
+    @State private var showsUnpairConfirmation = false
+    @State private var isUnpairing = false
+    @State private var unpairError: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("查看当前链路状态，或安全解除 StopWatch 绑定。")
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    StatusBadge(statusBadge.label, color: statusBadge.color)
+                    Text(accessory.hasAccessory ? accessory.status : "Bajji StopWatch")
+                        .font(.title2.weight(.semibold))
+                    StatusRow(
+                        label: "BLE 绑定",
+                        value: accessory.hasAccessory ? "已添加" : "未添加",
+                        valueColor: accessory.hasAccessory ? .bajjiSuccess : .secondary
+                    )
+                    Divider()
+                    StatusRow(label: "Wi‑Fi", value: wifiStatus)
+                    Divider()
+                    StatusRow(label: "VPN", value: tunnel.status)
+                }
+                .padding(18)
+                .bajjiCard()
+
+                if let diagnostics = tunnel.diagnostics {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("实时诊断")
+                            .font(.headline)
+                            .padding(.bottom, 8)
+                        StatusRow(label: "Internet", value: diagnostics.internet)
+                        Divider()
+                        StatusRow(label: "BLE RSSI", value: rssiText(diagnostics.bluetooth.rssi))
+                        Divider()
+                        StatusRow(
+                            label: "设备 → Internet",
+                            value: formattedBytes(diagnostics.forwarder.fromDeviceBytes)
+                        )
+                        Divider()
+                        StatusRow(
+                            label: "Internet → 设备",
+                            value: formattedBytes(diagnostics.forwarder.toDeviceBytes)
+                        )
+                        Divider()
+                        StatusRow(
+                            label: "丢弃 / 无效",
+                            value: "\(diagnostics.forwarder.droppedPackets) / \(diagnostics.forwarder.invalidPackets)",
+                            valueColor: diagnostics.forwarder.droppedPackets == 0 &&
+                                diagnostics.forwarder.invalidPackets == 0 ? .secondary : .red
+                        )
+                    }
+                    .padding(18)
+                    .bajjiCard()
+                }
+
+                Text(tunnel.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                Button("刷新状态") {
+                    Task {
+                        await tunnel.refresh()
+                        await tunnel.readSnapshot()
+                    }
+                }
+                .buttonStyle(BajjiOutlineButtonStyle())
+
+                Button("解除绑定", role: .destructive) {
+                    showsUnpairConfirmation = true
+                }
+                .buttonStyle(BajjiDestructiveButtonStyle())
+                .disabled(!accessory.hasAccessory || isUnpairing)
+
+                Text("解除绑定会清除配件关系；不会删除 iPhone 照片图库中的原图。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(24)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("诊断与绑定")
+        .task {
+            await tunnel.refresh()
+            await tunnel.readSnapshot()
+        }
+        .confirmationDialog(
+            "解除 StopWatch 绑定？",
+            isPresented: $showsUnpairConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("解除 StopWatch 绑定", role: .destructive) { unpair() }
+            Button("保留绑定", role: .cancel) {}
+        } message: {
+            Text("解除后需重新添加并授权 StopWatch；iPhone 照片中的原图不会删除。")
+        }
+        .alert("无法解除绑定", isPresented: Binding(
+            get: { unpairError != nil },
+            set: { if !$0 { unpairError = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(unpairError ?? "未知错误")
+        }
+    }
+
+    private func unpair() {
+        isUnpairing = true
+        Task {
+            if tunnel.state == .connected {
+                await tunnel.clearBinding()
+            }
+            await accessory.removeAccessory()
+            if accessory.hasAccessory {
+                unpairError = accessory.detail
+            } else if tunnel.state == .connected {
+                tunnel.stop()
+            }
+            isUnpairing = false
+        }
+    }
+
+    private var statusBadge: BadgeValue {
+        if accessory.hasAccessory && tunnel.state != .invalid {
+            BadgeValue("状态正常", .bajjiSuccess)
+        } else if accessory.hasAccessory {
+            BadgeValue("需检查", .bajjiWarning)
+        } else {
+            BadgeValue("未绑定", .secondary)
+        }
+    }
+
+    private var wifiStatus: String {
+        switch accessory.wifiSharingState {
+        case .notShared: "尚未共享"
+        case .authorizing: "授权中"
+        case .shared: "已共享"
+        case .restricted: "受限"
+        case .failed: "需重试"
+        }
+    }
+
+    private func rssiText(_ value: Int) -> String {
+        value == 0 ? "—" : "\(value) dBm"
+    }
+
+    private func formattedBytes(_ value: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .binary)
     }
 }
 
@@ -1096,6 +1404,17 @@ private struct BajjiOutlineButtonStyle: ButtonStyle {
     }
 }
 
+private struct BajjiDestructiveButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(Color.red.opacity(configuration.isPressed ? 0.78 : 1))
+            .clipShape(.rect(cornerRadius: 16))
+    }
+}
+
 private extension View {
     func bajjiCard() -> some View {
         background(Color(uiColor: .secondarySystemGroupedBackground))
@@ -1143,12 +1462,20 @@ final class WallpaperStore {
 
     var currentImage: UIImage?
     var draftImage: UIImage?
-    var displayMode: WallpaperDisplayMode = .fill
+    var displayMode: WallpaperDisplayMode = .fill {
+        didSet {
+            UserDefaults.standard.set(displayMode.rawValue, forKey: "bajji.wallpaperDisplayMode")
+        }
+    }
     var zoom: CGFloat = 1
     var offset: CGSize = .zero
     var updatedAt: Date?
 
     init() {
+        if let rawValue = UserDefaults.standard.string(forKey: "bajji.wallpaperDisplayMode"),
+           let savedMode = WallpaperDisplayMode(rawValue: rawValue) {
+            displayMode = savedMode
+        }
         guard let data = try? Data(contentsOf: Self.savedImageURL),
               let image = UIImage(data: data) else { return }
         currentImage = image

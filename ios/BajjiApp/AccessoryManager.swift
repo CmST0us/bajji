@@ -73,6 +73,24 @@ final class AccessoryManager: NSObject {
         }
     }
 
+    func removeAccessory() async {
+        guard !isBusy, let accessory else {
+            if accessory == nil { detail = "No StopWatch is currently added." }
+            return
+        }
+        isBusy = true
+        defer { isBusy = false }
+        logger.info("removing accessory from AccessorySetupKit session")
+        do {
+            try await session.removeAccessory(accessory)
+            save(nil)
+            detail = "The StopWatch was removed. Add it again to reconnect."
+        } catch {
+            logger.error("accessory removal failed: \(error.localizedDescription, privacy: .public)")
+            detail = error.localizedDescription
+        }
+    }
+
     func shareWiFi() {
         let bluetoothAuthorization = CBManager.authorization
         logger.info("Wi-Fi sharing requested: accessory_present=\(self.accessory != nil) bluetooth_authorization=\(bluetoothAuthorization.rawValue)")
