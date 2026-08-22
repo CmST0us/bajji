@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "bridge_protocol.h"
@@ -44,6 +45,8 @@ typedef struct {
 
 typedef void (*ble_link_frame_handler_t)(const bridge_frame_t* frame, void* context);
 typedef void (*ble_link_ready_handler_t)(bool ready, void* context);
+typedef esp_err_t (*ble_link_provision_handler_t)(const uint8_t* payload, size_t length,
+                                                  void* context);
 
 esp_err_t ble_link_start(void);
 ble_link_status_t ble_link_snapshot(void);
@@ -53,6 +56,7 @@ esp_err_t ble_link_clear_bond(void);
 esp_err_t ble_link_set_handlers(ble_link_frame_handler_t frame_handler,
                                 ble_link_ready_handler_t ready_handler,
                                 void* context);
+esp_err_t ble_link_set_provision_handler(ble_link_provision_handler_t handler, void* context);
 
 #ifdef __cplusplus
 }

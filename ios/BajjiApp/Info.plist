@@ -22,6 +22,14 @@
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Bajji uses Bluetooth to connect the StopWatch network bridge.</string>
+	<key>NSAccessorySetupBluetoothServices</key>
+	<array>
+		<string>6F8F8DB0-9C86-4AC5-A854-3A9E2F20B321</string>
+	</array>
+	<key>NSAccessorySetupKitSupports</key>
+	<array>
+		<string>Bluetooth</string>
+	</array>
 	<key>PacketTunnelProviderBundleIdentifier</key>
 	<string>$(BAJJI_TUNNEL_BUNDLE_ID)</string>
 	<key>UIApplicationSceneManifest</key>

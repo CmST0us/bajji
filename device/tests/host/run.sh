@@ -28,6 +28,13 @@ cc -std=c11 -Wall -Wextra -Werror \
 "$out_dir/test_ipv4_packet"
 
 cc -std=c11 -Wall -Wextra -Werror \
+  -I"$device_dir/components/wifi_link/include" \
+  "$test_dir/test_wifi_provision.c" \
+  "$device_dir/components/wifi_link/wifi_provision.c" \
+  -o "$out_dir/test_wifi_provision"
+"$out_dir/test_wifi_provision"
+
+cc -std=c11 -Wall -Wextra -Werror \
   -I"$device_dir/components/wallpaper/include" \
   "$test_dir/test_wallpaper_format.c" \
   "$device_dir/components/wallpaper/wallpaper_format.c" \

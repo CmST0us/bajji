@@ -41,3 +41,22 @@ Each direction queues no more than 32 complete frames. CoC MTU is at least
 BridgeInfo is readable only on the encrypted bonded link and is exactly 22
 bytes: protocol version, capability bits (`0x07` = IPv4/TCP/UDP), big-endian
 PSM, big-endian maximum payload, then the stable 16-byte Device ID.
+
+## Wi-Fi provisioning
+
+The encrypted, bonded GATT service also exposes writable characteristic
+`6f8f8db0-9c86-4ac5-a854-3a9e2f20b323`. A write contains one network:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 1 | Version `01` |
+| 1 | 1 | Security: open `00`, WEP `01`, WPA `02`, OWE `03`, WPA2 `04`, WPA3 `05` |
+| 2 | 1 | SSID length, 1–32 |
+| 3 | 1 | Password length, 0–64 |
+| 4 | variable | SSID bytes, then UTF-8 password bytes |
+
+The write is rejected unless the LE link uses Secure Connections, is bonded to
+the saved peer, and carries a valid credential length. The device stores the
+accepted station configuration through ESP-IDF and immediately attempts Wi-Fi.
+Wi-Fi is the default route while it has an address; otherwise the BLE IP bridge
+is the default route.

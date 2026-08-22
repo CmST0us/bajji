@@ -1,0 +1,6 @@
+config BAJJI_WIFI_LOG_CREDENTIALS
+    bool "Log plaintext Wi-Fi credentials"
+    default n
+    help
+        Print provisioned SSIDs and passwords to the serial console. Enable only
+        for local diagnostics because console logs may be collected or shared.

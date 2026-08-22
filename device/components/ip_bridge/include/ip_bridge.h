@@ -6,6 +6,7 @@
 
 #include "bridge_protocol.h"
 #include "esp_err.h"
+#include "esp_netif.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,7 @@ typedef struct {
 
 esp_err_t ip_bridge_start(void);
 void ip_bridge_set_link(bool up);
+void ip_bridge_set_wifi_netif(esp_netif_t* netif, bool up);
 void ip_bridge_receive(const bridge_frame_t* frame);
 ip_bridge_status_t ip_bridge_snapshot(void);
 

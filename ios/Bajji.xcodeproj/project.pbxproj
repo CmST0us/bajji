@@ -37,6 +37,15 @@
 		E353E5CE008539FC104C496C /* BridgeStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D9B41820ABD0FACE4D9C9 /* BridgeStreamParser.swift */; };
 		F377A80C07F2827D91C3F34D /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938200F8C75BD8A1AB6F62C5 /* PacketTunnelProvider.swift */; };
 		F6C67C77B72693474155B1A8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1009E531CB853590DF45A160 /* Foundation.framework */; };
+		A10000000000000000000001 /* AccessoryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000001 /* AccessoryManager.swift */; };
+		A10000000000000000000002 /* WiFiProvisioning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000002 /* WiFiProvisioning.swift */; };
+		A10000000000000000000003 /* WiFiProvisioning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000002 /* WiFiProvisioning.swift */; };
+		A10000000000000000000004 /* WiFiProvisioning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000002 /* WiFiProvisioning.swift */; };
+		A10000000000000000000005 /* WiFiProvisioningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000003 /* WiFiProvisioningTests.swift */; };
+		A10000000000000000000006 /* TransportExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000005 /* TransportExtension.swift */; };
+		A10000000000000000000007 /* WiFiSharingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000006 /* WiFiSharingProvider.swift */; };
+		A10000000000000000000008 /* WiFiProvisioning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10100000000000000000002 /* WiFiProvisioning.swift */; };
+		A10000000000000000000009 /* WiFiSharingExtension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = A10100000000000000000004 /* WiFiSharingExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +55,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 2AA54A78E12CE900C0412D49;
 			remoteInfo = PacketTunnel;
+		};
+		A10700000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4E7D2F3BC3A4600DD091B481 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10400000000000000000001;
+			remoteInfo = WiFiSharingExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -59,6 +75,17 @@
 				3DFBAD85438D8FAAA993A6E3 /* PacketTunnel.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10300000000000000000004 /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				A10000000000000000000009 /* WiFiSharingExtension.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -92,6 +119,14 @@
 		DC9DCD03F87A78805EC5C85E /* PacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E13F075D8DFDA69B75848D8C /* TunnelManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TunnelManager.swift; sourceTree = "<group>"; };
 		EF73FB0EA417573A84C95F22 /* BridgeFrame.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BridgeFrame.swift; sourceTree = "<group>"; };
+		A10100000000000000000001 /* AccessoryManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AccessoryManager.swift; sourceTree = "<group>"; };
+		A10100000000000000000002 /* WiFiProvisioning.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WiFiProvisioning.swift; sourceTree = "<group>"; };
+		A10100000000000000000003 /* WiFiProvisioningTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WiFiProvisioningTests.swift; sourceTree = "<group>"; };
+		A10100000000000000000004 /* WiFiSharingExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = WiFiSharingExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10100000000000000000005 /* TransportExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TransportExtension.swift; sourceTree = "<group>"; };
+		A10100000000000000000006 /* WiFiSharingProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WiFiSharingProvider.swift; sourceTree = "<group>"; };
+		A10100000000000000000007 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10100000000000000000008 /* WiFiSharingExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = WiFiSharingExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +145,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				C166944DAE3B09D038C52E90 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10300000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +176,7 @@
 				2BA81FB41CDA5FFEFE39BA2F /* PacketTunnel */,
 				0FB12ED37B81A1393ED2BA21 /* Shared */,
 				1774489CBB4C4D905E9529D0 /* BajjiTests */,
+				A10200000000000000000001 /* WiFiSharingExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -145,6 +188,7 @@
 				1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */,
 				061A00000000000000000101 /* IPv4Packet.swift */,
 				061A00000000000000000102 /* PacketPipe.swift */,
+				A10100000000000000000002 /* WiFiProvisioning.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -155,6 +199,7 @@
 				D68334B16A8886E2B1C95885 /* BridgeStreamParserTests.swift */,
 				061A00000000000000000105 /* IPv4PacketTests.swift */,
 				061A00000000000000000106 /* PacketPipeTests.swift */,
+				A10100000000000000000003 /* WiFiProvisioningTests.swift */,
 			);
 			path = BajjiTests;
 			sourceTree = "<group>";
@@ -165,6 +210,7 @@
 				79B0CB6261E05362770BB50C /* Bajji.app */,
 				DC9DCD03F87A78805EC5C85E /* PacketTunnel.appex */,
 				D6816C07EB3F94CFBD0589C7 /* BajjiTests.xctest */,
+				A10100000000000000000004 /* WiFiSharingExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -206,6 +252,7 @@
 				7A0B5A9EA7333C472AE6191C /* BajjiApp.swift */,
 				6644BBC4F39FA0CA4D510226 /* ContentView.swift */,
 				E13F075D8DFDA69B75848D8C /* TunnelManager.swift */,
+				A10100000000000000000001 /* AccessoryManager.swift */,
 				BB4B81A1D237B2046DC619EB /* Info.plist */,
 				3D162380CAAA053EBBE49B37 /* Bajji.entitlements */,
 			);
@@ -220,6 +267,17 @@
 				842FF66A291C3AA345B22CA5 /* iOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A10200000000000000000001 /* WiFiSharingExtension */ = {
+			isa = PBXGroup;
+			children = (
+				A10100000000000000000005 /* TransportExtension.swift */,
+				A10100000000000000000006 /* WiFiSharingProvider.swift */,
+				A10100000000000000000007 /* Info.plist */,
+				A10100000000000000000008 /* WiFiSharingExtension.entitlements */,
+			);
+			path = WiFiSharingExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -250,16 +308,35 @@
 				E94ED440A97729A7893C501B /* Frameworks */,
 				AD3365ABF1A04C0E0DF2E450 /* Resources */,
 				D64CE899EADC1330B14342BB /* Embed App Extensions */,
+				A10300000000000000000004 /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				50FCBE59BF41478242AE4DDE /* PBXTargetDependency */,
+				A10800000000000000000001 /* PBXTargetDependency */,
 			);
 			name = Bajji;
 			productName = Bajji;
 			productReference = 79B0CB6261E05362770BB50C /* Bajji.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A10400000000000000000001 /* WiFiSharingExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10600000000000000000001 /* Build configuration list for PBXNativeTarget "WiFiSharingExtension" */;
+			buildPhases = (
+				A10300000000000000000001 /* Sources */,
+				A10300000000000000000002 /* Frameworks */,
+				A10300000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WiFiSharingExtension;
+			productName = WiFiSharingExtension;
+			productReference = A10100000000000000000004 /* WiFiSharingExtension.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
 		};
 		B93B5F7B1CB30B5847169B46 /* BajjiTests */ = {
 			isa = PBXNativeTarget;
@@ -299,6 +376,10 @@
 						DevelopmentTeam = 2VQ94C2355;
 						ProvisioningStyle = Automatic;
 					};
+					A10400000000000000000001 = {
+						DevelopmentTeam = 2VQ94C2355;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 85FC4FEB7A32BE44CC50D6EB /* Build configuration list for PBXProject "Bajji" */;
@@ -317,6 +398,7 @@
 				5AEAF4B713E175790C1EB32A /* Bajji */,
 				2AA54A78E12CE900C0412D49 /* PacketTunnel */,
 				B93B5F7B1CB30B5847169B46 /* BajjiTests */,
+				A10400000000000000000001 /* WiFiSharingExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -343,6 +425,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10300000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -358,6 +447,8 @@
 				061A00000000000000000004 /* PacketPipe.swift in Sources */,
 				061A00000000000000000007 /* IPv4PacketTests.swift in Sources */,
 				061A00000000000000000008 /* PacketPipeTests.swift in Sources */,
+				A10000000000000000000004 /* WiFiProvisioning.swift in Sources */,
+				A10000000000000000000005 /* WiFiProvisioningTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +459,8 @@
 				DA0C5CA91866CCF57B0AADBE /* BajjiApp.swift in Sources */,
 				C54FDA9910544268CF45AFFC /* ContentView.swift in Sources */,
 				463C89CA4F8B9A4537EFFDF3 /* TunnelManager.swift in Sources */,
+				A10000000000000000000001 /* AccessoryManager.swift in Sources */,
+				A10000000000000000000002 /* WiFiProvisioning.swift in Sources */,
 				3FD8C2A24434098D5A8895D4 /* BridgeFrame.swift in Sources */,
 				8C555AA899EE8DDC1271E7D5 /* BridgeStreamParser.swift in Sources */,
 				809E29E6FFBD1C6589DA717E /* BridgeInfo.swift in Sources */,
@@ -388,6 +481,17 @@
 				061A00000000000000000003 /* PacketPipe.swift in Sources */,
 				061A00000000000000000005 /* HEVForwarder.swift in Sources */,
 				061A00000000000000000006 /* IPForwarder.swift in Sources */,
+				A10000000000000000000003 /* WiFiProvisioning.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10300000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000006 /* TransportExtension.swift in Sources */,
+				A10000000000000000000007 /* WiFiSharingProvider.swift in Sources */,
+				A10000000000000000000008 /* WiFiProvisioning.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -400,9 +504,54 @@
 			target = 2AA54A78E12CE900C0412D49 /* PacketTunnel */;
 			targetProxy = 51277567922037E61E6A92B0 /* PBXContainerItemProxy */;
 		};
+		A10800000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = WiFiSharingExtension;
+			target = A10400000000000000000001 /* WiFiSharingExtension */;
+			targetProxy = A10700000000000000000001 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A10500000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 803465D45EA3BA8AF8E2ABF6 /* Base.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = WiFiSharingExtension/WiFiSharingExtension.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WiFiSharingExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BAJJI_APP_BUNDLE_ID).WiFiSharing";
+				PRODUCT_NAME = WiFiSharingExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A10500000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 803465D45EA3BA8AF8E2ABF6 /* Base.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = WiFiSharingExtension/WiFiSharingExtension.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WiFiSharingExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BAJJI_APP_BUNDLE_ID).WiFiSharing";
+				PRODUCT_NAME = WiFiSharingExtension;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		09BDAA5A153192835DBD04B7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 803465D45EA3BA8AF8E2ABF6 /* Base.xcconfig */;
@@ -659,6 +808,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A10600000000000000000001 /* Build configuration list for PBXNativeTarget "WiFiSharingExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10500000000000000000001 /* Debug */,
+				A10500000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		4FEA2B7C561AF37062DD6B1D /* Build configuration list for PBXNativeTarget "BajjiTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

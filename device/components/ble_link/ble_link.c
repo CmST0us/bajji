@@ -40,6 +40,9 @@ static const ble_uuid128_t service_uuid = BLE_UUID128_INIT(
 static const ble_uuid128_t info_uuid = BLE_UUID128_INIT(
     0x22, 0xb3, 0x20, 0x2f, 0x9e, 0x3a, 0x54, 0xa8,
     0xc5, 0x4a, 0x86, 0x9c, 0xb0, 0x8d, 0x8f, 0x6f);
+static const ble_uuid128_t wifi_provision_uuid = BLE_UUID128_INIT(
+    0x23, 0xb3, 0x20, 0x2f, 0x9e, 0x3a, 0x54, 0xa8,
+    0xc5, 0x4a, 0x86, 0x9c, 0xb0, 0x8d, 0x8f, 0x6f);
 
 typedef struct {
     uint16_t length;
@@ -78,6 +81,8 @@ static bool preferred_phy_pending;
 static ble_link_frame_handler_t frame_handler;
 static ble_link_ready_handler_t ready_handler;
 static void* handler_context;
+static ble_link_provision_handler_t provision_handler;
+static void* provision_context;
 static uint16_t ping_sequence;
 
 static void set_bool(bool* field, bool value) {
@@ -157,6 +162,58 @@ static int bridge_info_read(uint16_t conn, uint16_t attribute,
     return os_mbuf_append(context->om, info, sizeof(info)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int wifi_provision_write(uint16_t conn, uint16_t attribute,
+                                struct ble_gatt_access_ctxt* context, void* argument) {
+    (void)argument;
+    if (context->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        ESP_LOGW(tag, "rejected Wi-Fi provisioning access: conn=%u attr=%u op=%u",
+                 conn, attribute, context->op);
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    struct ble_gap_conn_desc desc;
+    const int find_result = ble_gap_conn_find(conn, &desc);
+    if (find_result != 0) {
+        ESP_LOGW(tag, "rejected Wi-Fi provisioning write: conn=%u attr=%u lookup=%d",
+                 conn, attribute, find_result);
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    const bool allowed = peer_allowed(conn);
+    if (!desc.sec_state.encrypted || !desc.sec_state.bonded || !allowed) {
+        ESP_LOGW(tag, "rejected Wi-Fi provisioning write: conn=%u attr=%u encrypted=%d bonded=%d allowed=%d",
+                 conn, attribute, desc.sec_state.encrypted, desc.sec_state.bonded, allowed);
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    const uint16_t length = OS_MBUF_PKTLEN(context->om);
+    ESP_LOGI(tag, "received Wi-Fi provisioning GATT write: conn=%u attr=%u bytes=%u",
+             conn, attribute, length);
+    uint8_t payload[100];
+    if (length > sizeof(payload)) {
+        ESP_LOGW(tag, "rejected oversized Wi-Fi provisioning write: bytes=%u max=%zu",
+                 length, sizeof(payload));
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (os_mbuf_copydata(context->om, 0, length, payload) != 0) {
+        ESP_LOGE(tag, "could not copy Wi-Fi provisioning write: bytes=%u", length);
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    portENTER_CRITICAL(&status_lock);
+    ble_link_provision_handler_t callback = provision_handler;
+    void* callback_context = provision_context;
+    portEXIT_CRITICAL(&status_lock);
+    if (!callback) {
+        ESP_LOGE(tag, "cannot process Wi-Fi provisioning write: no handler registered");
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    const esp_err_t result = callback(payload, length, callback_context);
+    if (result != ESP_OK) {
+        ESP_LOGW(tag, "Wi-Fi provisioning handler rejected write: %s (0x%x)",
+                 esp_err_to_name(result), (unsigned)result);
+        return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+    }
+    ESP_LOGI(tag, "accepted Wi-Fi provisioning GATT write: bytes=%u", length);
+    return 0;
+}
+
 static const struct ble_gatt_chr_def characteristics[] = {
     {
         .uuid = &info_uuid.u,
@@ -164,6 +221,16 @@ static const struct ble_gatt_chr_def characteristics[] = {
         .arg = NULL,
         .descriptors = NULL,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
+        .min_key_size = 16,
+        .val_handle = NULL,
+        .cpfd = NULL,
+    },
+    {
+        .uuid = &wifi_provision_uuid.u,
+        .access_cb = wifi_provision_write,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
         .min_key_size = 16,
         .val_handle = NULL,
         .cpfd = NULL,
@@ -825,5 +892,14 @@ esp_err_t ble_link_set_handlers(ble_link_frame_handler_t next_frame_handler,
     ready_handler = next_ready_handler;
     handler_context = context;
     portEXIT_CRITICAL(&status_lock);
+    return ESP_OK;
+}
+
+esp_err_t ble_link_set_provision_handler(ble_link_provision_handler_t handler, void* context) {
+    portENTER_CRITICAL(&status_lock);
+    provision_handler = handler;
+    provision_context = context;
+    portEXIT_CRITICAL(&status_lock);
+    ESP_LOGI(tag, "Wi-Fi provisioning handler %s", handler ? "registered" : "cleared");
     return ESP_OK;
 }

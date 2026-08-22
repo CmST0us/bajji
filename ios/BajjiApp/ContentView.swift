@@ -4,10 +4,20 @@ import SwiftUI
 
 struct ContentView: View {
     let tunnel: TunnelManager
+    let accessory: AccessoryManager
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("Wi-Fi provisioning") {
+                    LabeledContent("StopWatch", value: accessory.status)
+                    Button("Add StopWatch") { Task { await accessory.presentPicker() } }
+                        .disabled(accessory.isBusy)
+                    Button("Share iPhone Wi-Fi") { accessory.shareWiFi() }
+                        .disabled(!accessory.hasAccessory || accessory.isBusy)
+                    Text(accessory.detail).foregroundStyle(.secondary)
+                }
+
                 Section("Tunnel") {
                     LabeledContent("VPN", value: tunnel.status)
                     Button("Install VPN Profile") { Task { await tunnel.install() } }

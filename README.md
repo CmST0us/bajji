@@ -2,7 +2,7 @@
 
 # Bajji
 
-**An IPv4 uplink and wallpaper experience for the BLE-only M5Stack StopWatch.**
+**A Wi-Fi-first IPv4 uplink with an iPhone fallback for M5Stack StopWatch.**
 
 [**English**](README.md) · [简体中文](README_zh.md)
 
@@ -15,16 +15,16 @@
 
 ![Bajji architecture](docs/images/bajji-architecture.svg)
 
-Bajji lets an [M5Stack StopWatch](https://docs.m5stack.com/en/core/StopWatch) reach the Internet through an iPhone. The watch has no Wi-Fi radio: its ESP32-S3 firmware carries IPv4 packets over an encrypted Bluetooth LE credit-based L2CAP channel, while an iOS Packet Tunnel forwards TCP, UDP, and DNS through the phone's current Wi-Fi or cellular connection.
+Bajji lets an [M5Stack StopWatch](https://docs.m5stack.com/en/core/StopWatch) reach the Internet directly over Wi-Fi. When Wi-Fi is unavailable, its ESP32-S3 firmware carries IPv4 packets over an encrypted Bluetooth LE credit-based L2CAP channel, while an iOS Packet Tunnel forwards TCP, UDP, and DNS through the phone's current uplink.
 
 The end-to-end demo runs on the watch itself: it securely pairs with one iPhone, downloads random wallpapers over HTTPS, caches them locally, and renders still or animated media on the round AMOLED display.
 
 > [!IMPORTANT]
-> Bajji is an experimental hardware project. The iOS bridge requires a physical iPhone running iOS 26 and developer signing with Packet Tunnel and App Group entitlements. It is not an App Store or TestFlight distribution.
+> Bajji is an experimental hardware project. The iOS bridge requires a physical iPhone running iOS 26 and developer signing with Packet Tunnel and App Group entitlements. Apple Wi-Fi Infrastructure provisioning additionally requires iOS 26.2 and its restricted entitlements. It is not an App Store or TestFlight distribution.
 
 ## Highlights
 
-- **No Wi-Fi provisioning** — the StopWatch uses its existing BLE radio as a point-to-point IPv4 link.
+- **Wi-Fi first, phone fallback** — Apple Wi-Fi Infrastructure securely shares a personal network; the BLE Packet Tunnel takes over whenever Wi-Fi loses its IP connection.
 - **Secure one-to-one pairing** — LE Secure Connections, a six-digit passkey shown on the watch, persistent bonding, and explicit bond reset.
 - **Useful network semantics** — IPv4 with TCP, UDP, and DNS; a 1280-byte MTU avoids fragmentation on the bridge.
 - **Round-screen product UI** — on-device pairing, wallpaper category settings, Cover and Fit+Blur display modes, touch controls, and physical A/B button shortcuts.
@@ -36,17 +36,17 @@ The end-to-end demo runs on the watch itself: it securely pairs with one iPhone,
 <p align="center">
   <img src="docs/assets/bajji-stopwatch-sample-wallpaper.png" width="480" alt="Sample wallpaper bundled with Bajji">
 </p>
-<p align="center"><em>Sample wallpaper bundled for display work; the device fetches new images through the BLE bridge.</em></p>
+<p align="center"><em>Sample wallpaper bundled for display work; the device fetches new images through its active uplink.</em></p>
 
 On the image screen, **KEY A** switches between Cover and Fit+Blur, **KEY B** requests another wallpaper, and holding **A+B** for one second returns to settings. The last valid image stays available after a reboot or bridge loss.
 
 ## How it works
 
-1. The StopWatch creates a point-to-point lwIP interface at `10.77.0.2/30`.
-2. [Bridge v1](protocol/bridge-v1.md) frames complete IPv4 packets over an encrypted LE L2CAP CoC.
-3. The Packet Tunnel extension owns CoreBluetooth and exposes the peer gateway at `10.77.0.1/30`.
-4. A UNIX datagram pipe connects those packets to pinned HEV tunnel and loopback SOCKS forwarders.
-5. The forwarder opens TCP and UDP traffic through the iPhone's active uplink and returns reconstructed IPv4 packets to the watch.
+1. The StopWatch restores its saved Wi-Fi station configuration and uses that interface as the default route after DHCP succeeds.
+2. In parallel, it creates a fallback point-to-point lwIP interface at `10.77.0.2/30`.
+3. [Bridge v1](protocol/bridge-v1.md) frames complete IPv4 packets over an encrypted LE L2CAP CoC.
+4. The Packet Tunnel extension exposes the peer gateway at `10.77.0.1/30`; pinned forwarders carry TCP, UDP, and DNS through the iPhone.
+5. A Wi-Fi disconnect immediately restores the phone bridge route; the next Wi-Fi IP lease selects Wi-Fi again.
 
 Only `10.77.0.0/30` is installed in the Packet Tunnel. Bajji does not replace the iPhone's default route or proxy the phone's own traffic.
 
@@ -90,12 +90,12 @@ open ios/Bajji.xcodeproj
 
 Configure your developer team, unique bundle identifiers, and matching App Group under `ios/Config/`. In Xcode, select the **BajjiBridge** scheme and run it on a physical iPhone. The Simulator cannot provide the required BLE and Packet Tunnel path.
 
-### 3. Pair and connect
+### 3. Provision, pair, and connect
 
 1. Start the flashed StopWatch.
-2. In the iOS app, tap **Install VPN Profile**, then **Start Bridge**.
-3. Enter the six-digit passkey shown on the watch when iOS prompts.
-4. Choose a wallpaper category on the watch and save it. The first HTTPS request begins when the bridge and time sync are ready.
+2. On iOS 26.2 or later, tap **Add StopWatch**, then **Share iPhone Wi-Fi** to provision the current personal network.
+3. Install and start the VPN profile to keep the phone fallback available. Enter the six-digit passkey shown on the watch when iOS prompts.
+4. Choose a wallpaper category on the watch and save it. The first HTTPS request begins when either uplink and time sync are ready.
 
 For lifecycle testing, detach the Xcode debugger before swiping away the host app; stopping a debug session also terminates the extension.
 
@@ -117,8 +117,8 @@ Use the [physical bridge validation template](docs/validation/complete-ip-bridge
 
 | Path | Purpose |
 |---|---|
-| [`device/`](device/) | ESP-IDF firmware, board HAL, LVGL UI, BLE link, lwIP bridge, and wallpaper pipeline |
-| [`ios/`](ios/) | SwiftUI host app, Packet Tunnel extension, shared Bridge codec, tests, and pinned forwarder build |
+| [`device/`](device/) | ESP-IDF firmware, board HAL, LVGL UI, Wi-Fi/BLE links, routing, and wallpaper pipeline |
+| [`ios/`](ios/) | SwiftUI host app, Packet Tunnel and Wi-Fi Sharing extensions, shared codecs, tests, and pinned forwarder build |
 | [`protocol/`](protocol/) | Bridge v1 specification and cross-language test vectors |
 | [`docs/`](docs/) | Hardware references, validation templates, design specs, and images |
 | [`wiki/`](wiki/README.md) | Verified engineering notes and platform-specific failure modes |
@@ -128,6 +128,7 @@ Use the [physical bridge validation template](docs/validation/complete-ip-bridge
 - IPv4 only; IPv6, ICMP, and IP fragmentation/reassembly are not supported.
 - One bonded iPhone and one StopWatch; no concurrent or multi-device bridge.
 - The Packet Tunnel as a BLE bridge host is experimental and needs physical-device lifecycle validation.
-- The watch deliberately has no Wi-Fi path, account system, favorites, history, or scheduled wallpaper rotation.
+- Wi-Fi provisioning supports personal open, WEP, WPA, OWE, WPA2, and WPA3 networks; enterprise credentials are not supported.
+- The watch deliberately has no account system, favorites, history, or scheduled wallpaper rotation.
 
 Protocol details are normative in [`protocol/bridge-v1.md`](protocol/bridge-v1.md). iOS-specific setup and lifecycle notes are in [`ios/README.md`](ios/README.md).

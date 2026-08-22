@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include <sys/time.h>
+#include <time.h>
 
 #include "ble_link.h"
 #include "esp_log.h"
@@ -22,6 +23,7 @@ static struct netif bridge_netif;
 static ip_bridge_status_t status;
 static portMUX_TYPE status_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t tx_sequence = 1;
+static bool wifi_up;
 // lwIP invokes netif output on its single tcpip task; keeping this off its 3 KiB stack avoids overflow.
 static bridge_frame_t tx_frame;
 
@@ -65,6 +67,17 @@ static err_t bridge_netif_init(struct netif* netif) {
     return ERR_OK;
 }
 
+static void use_bridge_route(void) {
+    if (netifapi_netif_set_default(&bridge_netif) != ERR_OK) {
+        ESP_LOGE(tag, "could not select phone bridge as default route");
+        return;
+    }
+    ip_addr_t dns;
+    IP_ADDR4(&dns, 1, 1, 1, 1);
+    dns_setserver(0, &dns);
+    ESP_LOGI(tag, "default route: phone bridge");
+}
+
 esp_err_t ip_bridge_start(void) {
     portENTER_CRITICAL(&status_lock);
     const bool already_started = status.started;
@@ -82,15 +95,12 @@ esp_err_t ip_bridge_start(void) {
     IP4_ADDR(&gateway, 10, 77, 0, 1);
     if (netifapi_netif_add(&bridge_netif, &address, &netmask, &gateway, NULL,
                            bridge_netif_init, tcpip_input) != ERR_OK ||
-        netifapi_netif_set_default(&bridge_netif) != ERR_OK ||
         netifapi_netif_set_up(&bridge_netif) != ERR_OK ||
         netifapi_netif_set_link_down(&bridge_netif) != ERR_OK) {
         return ESP_FAIL;
     }
 
-    ip_addr_t dns;
-    IP_ADDR4(&dns, 1, 1, 1, 1);
-    dns_setserver(0, &dns);
+    use_bridge_route();
     portENTER_CRITICAL(&status_lock);
     status.started = true;
     portEXIT_CRITICAL(&status_lock);
@@ -116,8 +126,33 @@ void ip_bridge_set_link(bool up) {
     } else {
         portENTER_CRITICAL(&status_lock);
         status.link_up = up;
+        const bool select_bridge = up && !wifi_up;
         portEXIT_CRITICAL(&status_lock);
+        if (select_bridge) use_bridge_route();
         ESP_LOGI(tag, "IPv4 link %s", up ? "up" : "down");
+    }
+}
+
+void ip_bridge_set_wifi_netif(esp_netif_t* netif, bool up) {
+    if (!netif) {
+        ESP_LOGE(tag, "cannot update Wi-Fi route: missing netif");
+        return;
+    }
+    portENTER_CRITICAL(&status_lock);
+    const bool changed = wifi_up != up;
+    wifi_up = up;
+    const bool bridge_up = status.link_up;
+    portEXIT_CRITICAL(&status_lock);
+    ESP_LOGI(tag, "Wi-Fi route state: up=%d changed=%d phone_bridge_up=%d",
+             up, changed, bridge_up);
+    if (up) {
+        const esp_err_t result = esp_netif_set_default_netif(netif);
+        if (result == ESP_OK) ESP_LOGI(tag, "default route: Wi-Fi");
+        else ESP_LOGE(tag, "could not select Wi-Fi default route: %s", esp_err_to_name(result));
+    } else if (bridge_up) {
+        use_bridge_route();
+    } else {
+        ESP_LOGW(tag, "no default upstream route: Wi-Fi and phone bridge are down");
     }
 }
 
@@ -163,7 +198,6 @@ static void receive_time(const bridge_frame_t* frame) {
     const struct timeval now = {.tv_sec = (time_t)seconds, .tv_usec = 0};
     const int result = settimeofday(&now, NULL);
     portENTER_CRITICAL(&status_lock);
-    status.time_valid = result == 0;
     if (result != 0) status.last_error = result;
     portEXIT_CRITICAL(&status_lock);
     if (result == 0) ESP_LOGI(tag, "clock synchronized");
@@ -182,5 +216,8 @@ ip_bridge_status_t ip_bridge_snapshot(void) {
     portENTER_CRITICAL(&status_lock);
     const ip_bridge_status_t snapshot = status;
     portEXIT_CRITICAL(&status_lock);
-    return snapshot;
+    ip_bridge_status_t current = snapshot;
+    const time_t now = time(NULL);
+    current.time_valid = now >= 1704067200 && now < 4102444800;
+    return current;
 }

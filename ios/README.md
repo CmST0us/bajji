@@ -1,18 +1,26 @@
 # Bajji iOS bridge
 
-The `BajjiBridge` scheme contains the SwiftUI app, Packet Tunnel extension and
-tests. The extension alone owns CoreBluetooth and routes only `10.77.0.0/30`.
+The `BajjiBridge` scheme contains the SwiftUI app, Packet Tunnel extension,
+Wi-Fi Sharing Accessory Transport Extension, and tests. The Packet Tunnel owns
+bridge traffic and routes only `10.77.0.0/30`; provisioning uses Bluetooth only
+while AccessorySetupKit and Wi-Fi Infrastructure share credentials.
 
 1. Build the pinned HEV forwarders: `python3 ios/tools/fetch_forwarder_deps.py`.
 2. Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` and set the
    Apple Developer team ID.
 3. Open `Bajji.xcodeproj`, select the `BajjiBridge` scheme, and run it on an
    iOS 26 physical iPhone using the App Group and Packet Tunnel entitlements.
-4. Tap **Install VPN Profile**, then **Start Bridge**. Enter the six-digit
-   passkey shown on StopWatch when iOS asks.
+4. On iOS 26.2 or later, tap **Add StopWatch**, then **Share iPhone Wi-Fi**.
+5. Tap **Install VPN Profile**, then **Start Bridge** to keep the fallback
+   available. Enter the six-digit passkey shown on StopWatch when iOS asks.
 
 Once the bridge is ready, Bajji owns `10.77.0.2/30`; the extension translates
 its IPv4 TCP, UDP, and DNS traffic through the iPhone.
+
+Wi-Fi Infrastructure requires the `WiFiNetworkSharing` entitlement on the app
+and sharing extension, plus the accessory transport entitlement on the latter.
+Production availability is restricted by Apple to eligible EU accounts and
+devices; outside that region the flow is available only for development tests.
 
 For lifecycle testing, detach the Xcode debugger before swiping away the host
 App. Xcode stopping a debug session also terminates the extension. Use

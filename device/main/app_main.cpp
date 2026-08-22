@@ -4,6 +4,7 @@
 #include "diagnostics_ui.hpp"
 #include "ip_bridge.h"
 #include "wallpaper_service.hpp"
+#include "wifi_link.h"
 
 #include <inttypes.h>
 
@@ -22,9 +23,15 @@ extern "C" void app_main() {
     if (result != ESP_OK) ESP_LOGE("main", "board init incomplete: %s", esp_err_to_name(result));
     const esp_err_t ip_result = ip_bridge_start();
     if (ip_result != ESP_OK) ESP_LOGE("main", "IP bridge init failed: %s", esp_err_to_name(ip_result));
+    const esp_err_t wifi_result = wifi_link_start();
+    if (wifi_result != ESP_OK) ESP_LOGE("main", "Wi-Fi init failed: %s", esp_err_to_name(wifi_result));
     ble_link_set_handlers(
         [](const bridge_frame_t* frame, void*) { ip_bridge_receive(frame); },
         [](bool ready, void*) { ip_bridge_set_link(ready); }, NULL);
+    ble_link_set_provision_handler(
+        [](const uint8_t* payload, size_t length, void*) {
+            return wifi_link_provision(payload, length);
+        }, NULL);
     const esp_err_t ble_result = ble_link_start();
     if (ble_result != ESP_OK) ESP_LOGE("main", "BLE init failed: %s", esp_err_to_name(ble_result));
     const esp_err_t wallpaper_result = bajji::wallpaper_start();
@@ -67,7 +74,8 @@ extern "C" void app_main() {
         }
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();
-        const bool online = ip.link_up && ip.time_valid;
+        const wifi_link_status_t wifi = wifi_link_snapshot();
+        const bool online = (wifi.connected || ip.link_up) && ip.time_valid;
         bajji::WallpaperStatus wallpaper = bajji::wallpaper_snapshot();
         if (online != wallpaper.online) {
             bajji::wallpaper_set_online(online);
