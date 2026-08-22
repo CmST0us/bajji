@@ -8,6 +8,20 @@
 
 ---
 
+## 2026-08-22 · 图片页解码结果改成跨页面复用，未编译未烧写
+
+`ProductUI` 新增 `media_revision_`：`show()` 只在壁纸 revision 变了才销毁 `webp_player_` / `still_image_` / `gif_source_` / `blurred_background_`，否则只调 `detach_webp_player()` 摘掉定时器和 widget 记录。`create_webp_player()` 拆出了 `attach_webp_player()`，所以 A 键切 cover/fit、以及设置页往返回图片页，只重建控件，不再重读文件、重解码 WebP、重做 520×520 模糊。代价是在别的页面上也一直占着约 2 MB PSRAM（共 8 MB）。
+
+顺带两处：模糊质量从 `LV_BLUR_QUALITY_PRECISION` 改回默认 AUTO（`lv_draw_sw_blur.c:77-86`，radius 24 时 skip_cnt 从 1 变 2，省 4 倍）；`BoardHal::poll()` 删掉 4 Hz 的 IMU 采样，`status_.imu_sample` 全仓库没有读者，而它每 250 ms 要抢触摸所在的那条 I2C 总线。PMIC/RTC 的 1 Hz 轮询**故意留着**，量小而且加电量/时间显示时就要用。
+
+**只跑了 host tests（通过），没有跑 `idf.py build`（共享 build 目录），也没有烧写真机。** 动画 WebP 的 fit 模式、以及 GIF/JPEG 回退路径需要真机各看一眼。
+
+## 2026-08-22 · BLE 15 ms 间隔请求解除 PHY 依赖、TX 队列缩到 16，未编译未烧写
+
+`device/components/ble_link/ble_link.c`：15 ms 连接间隔请求抽成 `request_fast_connection_interval()`，PHY_UPDATE_COMPLETE 的成功/失败两条路径都发，`ble_gap_set_prefered_le_phy()` 同步失败时也立刻发（原来这三种情况会整条连接停在 iOS 默认的约 30 ms）。`kQueueCapacity` 32 → 16，省约 20.6 KB 内部 .bss；`kReceiveBufferCount` 之前已经是 2。
+
+**没跑 idf.py build**（共享 build 目录，按编排要求跳过），也没烧真机。host tests 通过。谁下一轮构建顺手确认一下这个文件能编过。
+
 ## 2026-08-22 · 最新 Figma 设置与异常流程已实现，待烧写真机
 
 提交 `be43db1`、`3cd8d8c` 已实现参数设置主页、分类/类型、配对管理与解除确认、三档亮度、定时刷新预设/自定义间隔、加载取消、配对码失效恢复和手机桥接不可用页面；定时刷新按设备本地持久化并继续通过 BLE 手机网络请求。`ccad04a` 将箭头/对号改为 LVGL 线条绘制，并为中文 16/20/24 px 字体补回退与 `·` 圆点映射；`56ee335` 又将加载页 `bq · eciyuan` 的分隔点改为实体圆点，完全绕开 Montserrat 14 的缺字。图片页实体按键映射仍位于 Figma 指定的顶部位置。host tests 与 ESP-IDF 完整构建通过，app 大小 `0x1ea580`，尚未烧写真机做触摸、实体按键和视觉验收。

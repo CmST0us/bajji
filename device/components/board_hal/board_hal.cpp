@@ -77,7 +77,6 @@ ButtonState buttons;
 portMUX_TYPE button_mux = portMUX_INITIALIZER_UNLOCKED;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
-std::int64_t sensor_poll_us = 0;
 
 // Mirrors m5gfx::Panel_StopWatch (M5GFX.cpp:820-846), which M5GFX.cpp defines at file
 // scope and does not export in a header. Panel_CO5300 supplies the depths and
@@ -616,21 +615,11 @@ void BoardHal::poll() {
         if (rtc_device) update_rtc(status_);
     }
 
-    if (now - sensor_poll_us >= 250000) {
-        sensor_poll_us = now;
-        int available = 0;
-        if (imu && bmi270_bmm150_sensor_acceleration_available(imu, &available) == ESP_OK && available > 0) {
-            bmi270_bmm150_sensor_read_acceleration(imu, &status_.imu_sample.accel_y,
-                                                   &status_.imu_sample.accel_x,
-                                                   &status_.imu_sample.accel_z);
-            if (bmi270_bmm150_sensor_gyroscope_available(imu, &available) == ESP_OK && available > 0) {
-                bmi270_bmm150_sensor_read_gyroscope(imu, &status_.imu_sample.gyro_y,
-                                                    &status_.imu_sample.gyro_x,
-                                                    &status_.imu_sample.gyro_z);
-            }
-        }
-    }
-
+    // No IMU sampling here. Nothing reads status_.imu_sample, and polling it cost four
+    // multi-byte transactions every 250 ms on I2C_NUM_0 - the same bus the LVGL task must
+    // take for every touch read while it holds the LVGL lock, so each collision stalled
+    // render and input for the length of the transaction (wiki/shared-i2c-bus.md). The
+    // sensor is still brought up in init_imu(); add the reads back next to their consumer.
 }
 
 void BoardHal::set_brightness(std::uint8_t percent) {

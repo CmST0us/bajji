@@ -114,6 +114,9 @@ private:
     std::uint32_t controls_hide_started_ms_{};
     std::uint32_t cache_error_deadline_ms_{};
     std::uint32_t wallpaper_revision_{};
+    // Wallpaper revision the retained still/GIF/WebP media above was decoded from; 0 means
+    // nothing is retained. show() frees them only when this stops matching the live revision.
+    std::uint32_t media_revision_{};
     std::uint32_t request_revision_{};
     std::uint16_t custom_interval_minutes_{5};
     bool controls_visible_{};

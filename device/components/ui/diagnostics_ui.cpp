@@ -306,38 +306,15 @@ void destroy_webp_player(WebPPlayer* player) {
     delete player;
 }
 
-WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, bool animated) {
-    auto* player = new (std::nothrow) WebPPlayer;
-    if (!player) return nullptr;
-    std::uint32_t size = 0;
-    player->file = static_cast<std::uint8_t*>(lv_fs_load_with_alloc(path, &size));
-    WebPAnimDecoderOptions options{};
-    if (!player->file || !WebPAnimDecoderOptionsInit(&options)) {
-        destroy_webp_player(player);
-        return nullptr;
-    }
-    options.color_mode = MODE_BGRA;
-    options.use_threads = 0;
-    WebPData data{player->file, size};
-    if (!(player->decoder = WebPAnimDecoderNew(&data, &options))) {
-        destroy_webp_player(player);
-        return nullptr;
-    }
-    WebPAnimInfo info{};
-    if (!WebPAnimDecoderGetInfo(player->decoder, &info) || !info.canvas_width ||
-        !info.canvas_height ||
-        !(player->frame = lv_draw_buf_create(info.canvas_width, info.canvas_height,
-                                             LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO))) {
-        destroy_webp_player(player);
-        return nullptr;
-    }
-    webp_advance(player);
-    if (fit) {
+// The widgets belong to the page, the decoded pixels do not. Splitting the attach step out
+// of create lets a display-mode toggle or a settings round trip rebuild the widget tree
+// without repeating the file read, the WebP decode and the backdrop blur.
+bool attach_webp_player(WebPPlayer* player, lv_obj_t* parent, bool fit, bool animated) {
+    if (!player || !player->frame) return false;
+    player->image_count = 0;
+    if (fit && !player->background) {
         player->background = blur_backdrop(player->frame);
-        if (!player->background) {
-            destroy_webp_player(player);
-            return static_cast<WebPPlayer*>(nullptr);
-        }
+        if (!player->background) return false;
     }
     auto add_image = [&](bool background) {
         auto* image = lv_image_create(parent);
@@ -367,7 +344,50 @@ WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, boo
         lv_obj_remove_flag(veil, LV_OBJ_FLAG_CLICKABLE);
     }
     add_image(false);
-    if (animated) player->timer = lv_timer_create(webp_timer, 16, player);
+    if (animated && !player->timer) player->timer = lv_timer_create(webp_timer, 16, player);
+    return true;
+}
+
+// Drop everything the page owns, keep everything the file paid for. The timer has to go
+// first: it runs from the LVGL task and invalidates player->images, which are about to be
+// deleted along with the page.
+void detach_webp_player(WebPPlayer* player) {
+    if (!player) return;
+    if (player->timer) lv_timer_delete(player->timer);
+    player->timer = nullptr;
+    player->image_count = 0;
+}
+
+WebPPlayer* create_webp_player(lv_obj_t* parent, const char* path, bool fit, bool animated) {
+    auto* player = new (std::nothrow) WebPPlayer;
+    if (!player) return nullptr;
+    std::uint32_t size = 0;
+    player->file = static_cast<std::uint8_t*>(lv_fs_load_with_alloc(path, &size));
+    WebPAnimDecoderOptions options{};
+    if (!player->file || !WebPAnimDecoderOptionsInit(&options)) {
+        destroy_webp_player(player);
+        return nullptr;
+    }
+    options.color_mode = MODE_BGRA;
+    options.use_threads = 0;
+    WebPData data{player->file, size};
+    if (!(player->decoder = WebPAnimDecoderNew(&data, &options))) {
+        destroy_webp_player(player);
+        return nullptr;
+    }
+    WebPAnimInfo info{};
+    if (!WebPAnimDecoderGetInfo(player->decoder, &info) || !info.canvas_width ||
+        !info.canvas_height ||
+        !(player->frame = lv_draw_buf_create(info.canvas_width, info.canvas_height,
+                                             LV_COLOR_FORMAT_ARGB8888, LV_STRIDE_AUTO))) {
+        destroy_webp_player(player);
+        return nullptr;
+    }
+    webp_advance(player);
+    if (!attach_webp_player(player, parent, fit, animated)) {
+        destroy_webp_player(player);
+        return nullptr;
+    }
     return player;
 }
 
@@ -456,7 +476,11 @@ lv_draw_buf_t* blur_backdrop(const lv_draw_buf_t* source) {
     lv_draw_blur_dsc_init(&blur_dsc);
     blur_dsc.base.layer = &layer;
     blur_dsc.blur_radius = 24;
-    blur_dsc.quality = LV_BLUR_QUALITY_PRECISION;
+    // Quality stays at the default LV_BLUR_QUALITY_AUTO. At radius 24 that picks skip_cnt 2
+    // (lv_draw_sw_blur.c:77-86): one pixel in four goes through the four IIR passes and the
+    // rest are filled from the nearest blurred pixel. LV_BLUR_QUALITY_PRECISION pins
+    // skip_cnt to 1, so it costs 4x the read-modify-write traffic over this 520x520 PSRAM
+    // buffer for detail nothing can see - the result is a blob sitting under a 20% veil.
     const lv_area_t full{0, 0, kBackdrop - 1, kBackdrop - 1};
     lv_draw_blur(&layer, &blur_dsc, &full);
 
@@ -528,22 +552,35 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     controls_visible_ = false;
     controls_hiding_ = false;
 
-    destroy_webp_player(static_cast<WebPPlayer*>(webp_player_));
-    webp_player_ = nullptr;
+    // Decoding a wallpaper costs a file read plus a WebP/JPEG/PNG decode, a box filter shrink
+    // and a 520x520 blur, all of it in the caller's task while it holds the LVGL lock
+    // (app_main.cpp) - the UI is frozen for the whole of it. None of those products depend on
+    // the page or the display mode, only on the cached file, so keep them while the wallpaper
+    // is unchanged. Both the A button (cover/fit toggle) and the settings round trip re-enter
+    // Page::image on the same revision, and wallpaper_service bumps revision every time it
+    // writes a new file, so the revision alone is a safe key.
+    const bool keep_media = media_revision_ != 0 && media_revision_ == wallpaper.revision;
+    if (keep_media) {
+        detach_webp_player(static_cast<WebPPlayer*>(webp_player_));
+    } else {
+        destroy_webp_player(static_cast<WebPPlayer*>(webp_player_));
+        webp_player_ = nullptr;
+        media_revision_ = 0;
+    }
     if (root_) lv_obj_delete(root_);
-    if (still_image_) {
+    if (still_image_ && !keep_media) {
         auto* stale = static_cast<lv_draw_buf_t*>(still_image_);
         still_image_ = nullptr;
         lv_image_cache_drop(stale);  // no widget may hold a decoded view of it past this point
         lv_draw_buf_destroy(stale);
     }
-    if (blurred_background_) {
+    if (blurred_background_ && !keep_media) {
         auto* stale = static_cast<lv_draw_buf_t*>(blurred_background_);
         blurred_background_ = nullptr;
         lv_image_cache_drop(stale);
         lv_draw_buf_destroy(stale);
     }
-    if (gif_source_) {
+    if (gif_source_ && !keep_media) {
         destroy_gif_source(static_cast<GifSource*>(gif_source_));
         gif_source_ = nullptr;
     }
@@ -1176,7 +1213,8 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
                 // Keep the old, slower path only when allocating the pre-rendered buffer failed.
                 lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
                 lv_obj_set_style_blur_radius(image, 24, 0);
-                lv_obj_set_style_blur_quality(image, LV_BLUR_QUALITY_PRECISION, 0);
+                // No blur quality override: LV_BLUR_QUALITY_AUTO skips 3 pixels in 4
+                // (lv_draw_sw_blur.c:77-86) and this fallback redraws on every invalidation.
             }
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
@@ -1192,27 +1230,45 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
         return image;
     };
 
+    // Everything below reuses what show() kept for this revision and only decodes what is
+    // still missing, so re-entering this page for a mode toggle costs widget creation alone.
     if (webp) {
-        webp_player_ = create_webp_player(root_, wallpaper.lvgl_path, fit,
-                                          wallpaper.media.animated);
+        auto* player = static_cast<WebPPlayer*>(webp_player_);
+        if (player) {
+            if (!attach_webp_player(player, root_, fit, wallpaper.media.animated)) {
+                destroy_webp_player(player);
+                webp_player_ = nullptr;
+            }
+        } else {
+            webp_player_ = create_webp_player(root_, wallpaper.lvgl_path, fit,
+                                              wallpaper.media.animated);
+        }
     }
     if (!webp_player_) {
         if (gif) {
-            gif_source = load_gif(wallpaper.lvgl_path);
-            gif_source_ = gif_source;
-            if (!gif_source) LV_LOG_WARN("gif load failed; playing from file");
+            gif_source = static_cast<GifSource*>(gif_source_);
+            if (!gif_source) {
+                gif_source = load_gif(wallpaper.lvgl_path);
+                gif_source_ = gif_source;
+                if (!gif_source) LV_LOG_WARN("gif load failed; playing from file");
+            }
         } else {
-            still = decode_still(wallpaper.lvgl_path);
-            still_image_ = still;
-            if (!still) LV_LOG_WARN("still decode failed; drawing from file");
+            still = static_cast<lv_draw_buf_t*>(still_image_);
+            if (!still) {
+                still = decode_still(wallpaper.lvgl_path);
+                still_image_ = still;
+                if (!still) LV_LOG_WARN("still decode failed; drawing from file");
+            }
         }
         if (fit) {
+            if (!blurred_background_) {
 #if LV_USE_GIF
-            if (gif) blurred_background_ = blur_backdrop_from_gif(gif_source, wallpaper.lvgl_path);
-            else
+                if (gif) blurred_background_ = blur_backdrop_from_gif(gif_source, wallpaper.lvgl_path);
+                else
 #endif
-            if (still) blurred_background_ = blur_backdrop(still);
-            if (!blurred_background_) LV_LOG_WARN("pre-rendered blur unavailable; drawing live blur");
+                if (still) blurred_background_ = blur_backdrop(still);
+                if (!blurred_background_) LV_LOG_WARN("pre-rendered blur unavailable; drawing live blur");
+            }
             add_media(true);
             auto* veil = object(root_, 0, 0, kDisplay, kDisplay, kBase, LV_RADIUS_CIRCLE);
             lv_obj_set_style_bg_opa(veil, LV_OPA_20, 0);
@@ -1220,6 +1276,7 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
         }
         add_media(false);
     }
+    media_revision_ = wallpaper.revision;
     lv_obj_add_flag(root_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(root_, root_clicked, LV_EVENT_PRESSED, this);
 
