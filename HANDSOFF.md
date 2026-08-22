@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-08-22 · 壁纸 HTTPS 失败已定位为 Mbed TLS 内部 DRAM 分配失败，尚未修复
+
+真机日志 `mbedtls_ssl_setup returned -0x008D` 中的 `-0x008D` 是 Mbed TLS 4 的
+`PSA_ERROR_INSUFFICIENT_MEMORY`。当前 `CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y` 强制约 16.7 KiB 的 TLS
+输入缓冲区及其他握手对象只使用内部 DRAM，8 MB PSRAM 不参与；因此失败发生在握手前，不是证书、
+DNS、Cloudflare 或 HTTP 错误。建议下一步改用 `CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC`，让略大于
+`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384` 的输入缓冲区优先去 PSRAM，并用 internal/PSRAM largest
+block 日志做真机确认。尚未修改固件配置，完整依据见
+[`wiki/mbedtls-ssl-setup-memory.md`](wiki/mbedtls-ssl-setup-memory.md)。
+
 ## 2026-08-22 · 用户自选网络、control-only BLE 与方形 PNG 已实现，待真机验收
 
 本次变更已协调修改协议、固件、iOS 与 Figma。Bridge v1 新增 23-byte HELLO role（`data` / `control-only`）、network-control/control-only capability，以及 `NETWORK_GET/SET/STATE`；固件在 NVS 持久化 `unset/manual/shared/vpn`，旧 Wi-Fi 配置迁移为 manual。manual/shared 只走 STA，vpn 停止 STA 并只允许 data-role CoC 上行；Portal 成功归入 manual，后台 GATT 凭据只在 shared 等待状态或旧版 unset 迁移入口生效。控制 CoC 与 IP bridge 已拆开，未启用 VPN 也能设置参数和传壁纸。

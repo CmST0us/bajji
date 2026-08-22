@@ -13,6 +13,7 @@
 | [wallpaper-cache-filesystem.md](wallpaper-cache-filesystem.md) | SPIFFS 为什么会在换壁纸时把看门狗喂爆，以及换成 FAT 的经过 |
 | [weserv-uapis-compatibility.md](weserv-uapis-compatibility.md) | UAPI 外部图床分类为什么会被 images.weserv.nl 随机拒绝，以及可靠的参数边界 |
 | [cloudflare-images-uapis.md](cloudflare-images-uapis.md) | 用 Cloudflare Worker 转换 UAPI 图片时为什么要用 Images binding，以及哪些失败仍来自源站 |
+| [mbedtls-ssl-setup-memory.md](mbedtls-ssl-setup-memory.md) | `mbedtls_ssl_setup returned -0x008D` 为什么是内部 DRAM 分配失败，而不是网络错误 |
 | [gif-frame-rate.md](gif-frame-rate.md) | 小 GIF 被 LVGL 从 PSRAM 逐帧放大时为什么只剩约 4 FPS |
 | [shared-i2c-bus.md](shared-i2c-bus.md) | 共享 I2C 总线上反复创建销毁设备句柄会和别的任务打架 |
 | [nimble-coc-buffering.md](nimble-coc-buffering.md) | NimBLE CoC 的 SDU slot、credit 和 mbuf block 为什么不能混为一谈 |
