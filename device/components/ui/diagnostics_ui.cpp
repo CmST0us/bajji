@@ -83,6 +83,10 @@ std::uint32_t now_ms() { return lv_tick_get(); }
 bool deadline_passed(std::uint32_t now, std::uint32_t deadline) {
     return static_cast<std::int32_t>(now - deadline) >= 0;
 }
+constexpr bool has_download_uplink(bool phone_bridge_ready, bool network_online) {
+    return phone_bridge_ready || network_online;
+}
+static_assert(has_download_uplink(false, true));
 
 lv_obj_t* object(lv_obj_t* parent, int x, int y, int width, int height,
                  std::uint32_t background, int radius = 0) {
@@ -538,7 +542,10 @@ void ProductUI::create(const ble_link_status_t& link, const WallpaperStatus& wal
         if (!link.has_bond) show(Page::unpaired, wallpaper);
         else if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
-        else show(link.bridge_ready ? Page::loading : Page::bridge_unavailable, wallpaper);
+        else show(has_download_uplink(link.bridge_ready, wallpaper.online)
+                      ? Page::loading
+                      : Page::bridge_unavailable,
+                  wallpaper);
     }
 }
 
@@ -943,8 +950,8 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             object(root_, 185, 76, 96, 96, kSurface, 48);
             label(root_, "!", 185, 82, 96, &lv_font_montserrat_48, kError);
             title(root_, "无法获取图片", 198);
-            label(root_, wallpaper.online ? "手机网络请求失败\n设备中也没有缓存图片"
-                                          : "手机网络不可用\n设备中也没有缓存图片",
+            label(root_, wallpaper.online ? "网络请求失败\n设备中也没有缓存图片"
+                                          : "网络不可用\n设备中也没有缓存图片",
                   83, 246, 300, kBodyFont, kSecondary);
             {
                 auto* retry = object(root_, 133, 330, 200, 48, kSurface, 24);
@@ -953,7 +960,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                 label(retry, "刷新图片", 60, 14, 124,
                       kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
             }
-            label(root_, "请检查手机网络与蓝牙连接", 100, 397, 266,
+            label(root_, "请检查 Wi-Fi 或手机连接", 100, 397, 266,
                   kBodyFont, kError);
             break;
     }
@@ -1523,7 +1530,9 @@ void ProductUI::save_settings() {
     latest_wallpaper_.settings = draft_;
     latest_wallpaper_.settings.configured = true;
     request_revision_ = latest_wallpaper_.request_revision;
-    show(latest_link_.bridge_ready ? Page::loading : Page::bridge_unavailable,
+    show(has_download_uplink(latest_link_.bridge_ready, latest_wallpaper_.online)
+             ? Page::loading
+             : Page::bridge_unavailable,
          latest_wallpaper_);
 }
 
@@ -1548,7 +1557,7 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
         lv_obj_remove_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
     }
     if (!wallpaper.online && cache_error_) {
-        lv_label_set_text(cache_error_text_, "等待手机连接 · 显示缓存");
+        lv_label_set_text(cache_error_text_, "等待网络连接 · 显示缓存");
         lv_obj_remove_flag(cache_error_, LV_OBJ_FLAG_HIDDEN);
         cache_error_deadline_ms_ = now_ms() + kControlsDurationMs;
     }
@@ -1582,14 +1591,20 @@ void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
         if (!link.has_bond) show(Page::unpaired, wallpaper);
         else if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
-        else show(link.bridge_ready ? Page::loading : Page::bridge_unavailable, wallpaper);
+        else show(has_download_uplink(link.bridge_ready, wallpaper.online)
+                      ? Page::loading
+                      : Page::bridge_unavailable,
+                  wallpaper);
     } else if (page_ == Page::unpaired && link.has_bond) {
         show(Page::pairing_success, wallpaper);
     } else if (page_ == Page::pairing_success &&
                deadline_passed(now, page_since_ms_ + kPairSuccessMs)) {
         if (!wallpaper.settings.configured) show(Page::settings, wallpaper);
         else if (wallpaper.has_cache) show(Page::image, wallpaper);
-        else show(link.bridge_ready ? Page::loading : Page::bridge_unavailable, wallpaper);
+        else show(has_download_uplink(link.bridge_ready, wallpaper.online)
+                      ? Page::loading
+                      : Page::bridge_unavailable,
+                  wallpaper);
     }
 
     if (buttons.a_pressed) {
@@ -1614,7 +1629,7 @@ void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
     }
 
     if (page_ == Page::loading) {
-        if (!link.bridge_ready && !wallpaper.busy) {
+        if (!has_download_uplink(link.bridge_ready, wallpaper.online) && !wallpaper.busy) {
             show(Page::bridge_unavailable, wallpaper);
         } else if (wallpaper.has_cache) {
             wallpaper_revision_ = wallpaper.revision;
@@ -1685,7 +1700,7 @@ void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
             controls_visible_ = false;
         }
     } else if (page_ == Page::error && buttons.b_pressed) {
-        if (!link.bridge_ready) {
+        if (!has_download_uplink(link.bridge_ready, wallpaper.online)) {
             show(Page::bridge_unavailable, wallpaper);
             return;
         }
