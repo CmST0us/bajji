@@ -103,6 +103,12 @@ struct BridgeStreamParserTests {
                 payload: Data(repeating: 0, count: 4)
             ).encode()
         }
+
+        let settings = frames[1]
+        #expect(try BridgeFrame.decode(settings.encode()) == settings)
+        #expect(throws: BridgeProtocolError.incompleteFrame) {
+            try BridgeFrame.decode(Data([0xBA, 0x77]))
+        }
     }
 
 }

@@ -8,6 +8,7 @@ struct BluetoothSnapshot: Codable {
     var deviceID = ""
     var psm: UInt16 = 0
     var maximumPayload: UInt16 = 0
+    var capabilities: UInt8 = 0
     var rssi = 0
     var receivedBytes: UInt64 = 0
     var sentBytes: UInt64 = 0
@@ -35,6 +36,9 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private var handshakeNonce: Data?
     private var clearBindingPending = false
     private var bridgeReady = false
+    private var capabilities: UInt8 = 0
+    private var nextRequestSequence: UInt16 = 0x7FFF
+    private var pendingRequests: [UInt16: PendingRequest] = [:]
 
     var onFrame: ((BridgeFrame) -> Void)?
     var onReady: (() -> Void)?
@@ -72,6 +76,43 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
             defer { sendSlots.signal() }
             guard handshakeNonce == nil else { return }
             stream?.send(frame)
+        }
+    }
+
+    func request(type: BridgeFrame.Kind, payload: Data,
+                 completion: @escaping @Sendable (Result<BridgeFrame, Error>) -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard bridgeReady, let stream else {
+                completion(.failure(BluetoothRequestError.unavailable))
+                return
+            }
+            guard let expected = type.controlResponse else {
+                completion(.failure(BluetoothRequestError.invalidRequest))
+                return
+            }
+            let requiredCapability = expected == .settingsState
+                ? BridgeInfo.settingsCapability : BridgeInfo.wallpaperCapability
+            guard capabilities & requiredCapability != 0 else {
+                completion(.failure(BluetoothRequestError.unsupported))
+                return
+            }
+            repeat {
+                nextRequestSequence &+= 1
+                if nextRequestSequence < 0x8000 { nextRequestSequence = 0x8000 }
+            } while pendingRequests[nextRequestSequence] != nil
+            let sequence = nextRequestSequence
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let request = self?.pendingRequests.removeValue(forKey: sequence) else { return }
+                request.completion(.failure(BluetoothRequestError.timeout))
+            }
+            pendingRequests[sequence] = PendingRequest(
+                expected: expected,
+                timeout: timeout,
+                completion: completion
+            )
+            queue.asyncAfter(deadline: .now() + 30, execute: timeout)
+            stream.send(BridgeFrame(type: type, sequence: sequence, payload: payload))
         }
     }
 
@@ -137,15 +178,25 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     }
 
     private func setReady(_ ready: Bool) {
+        if !ready { failPendingRequests(BluetoothRequestError.disconnected) }
         guard bridgeReady != ready else { return }
         bridgeReady = ready
         if !ready { onUnavailable?() }
     }
 
+    private func failPendingRequests(_ error: BluetoothRequestError) {
+        let requests = Array(pendingRequests.values)
+        pendingRequests.removeAll()
+        for request in requests {
+            request.timeout.cancel()
+            request.completion(.failure(error))
+        }
+    }
+
     private func useBridgeInfo(_ data: Data) {
         do {
             let info = try BridgeInfo(data: data)
-            guard info.capabilities & 0x07 == 0x07,
+            guard info.capabilities & BridgeInfo.baseCapabilities == BridgeInfo.baseCapabilities,
                   info.maximumPayload == BridgeFrame.maximumPayload else {
                 fail("StopWatch does not support the required IPv4/TCP/UDP profile", reconnect: false)
                 return
@@ -161,8 +212,10 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
                 $0.deviceID = info.deviceID.map { String(format: "%02x", $0) }.joined()
                 $0.psm = info.psm
                 $0.maximumPayload = info.maximumPayload
+                $0.capabilities = info.capabilities
                 $0.state = "opening L2CAP CoC"
             }
+            capabilities = info.capabilities
             logger.info("BridgeInfo ready: psm=\(info.psm) max_payload=\(info.maximumPayload)")
             peripheral?.openL2CAPChannel(CBL2CAPPSM(info.psm))
         } catch {
@@ -176,6 +229,17 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
                 stream?.send(BridgeFrame(type: .pong, sequence: frame.sequence,
                                          payload: frame.payload))
                 logger.info("answered device PING: sequence=\(frame.sequence)")
+                return
+            }
+            if (frame.type == .settingsState || frame.type == .wallpaperResult ||
+                frame.type == .error),
+               let request = pendingRequests.removeValue(forKey: frame.sequence) {
+                request.timeout.cancel()
+                if frame.type == request.expected || frame.type == .error {
+                    request.completion(.success(frame))
+                } else {
+                    request.completion(.failure(BluetoothRequestError.invalidResponse))
+                }
                 return
             }
             onFrame?(frame)
@@ -268,13 +332,41 @@ extension BluetoothBridge: CBCentralManagerDelegate {
         stream?.stop()
         stream = nil
         self.peripheral = nil
+        capabilities = 0
         update {
             $0.state = "disconnected"
+            $0.capabilities = 0
             if let error { $0.lastError = error.localizedDescription }
         }
         logger.info("disconnected: reconnecting=\(isReconnecting) error=\(error?.localizedDescription ?? "none", privacy: .public)")
         if shouldReconnect {
             queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.scan() }
+        }
+    }
+}
+
+private struct PendingRequest {
+    let expected: BridgeFrame.Kind
+    let timeout: DispatchWorkItem
+    let completion: @Sendable (Result<BridgeFrame, Error>) -> Void
+}
+
+private enum BluetoothRequestError: LocalizedError {
+    case unavailable
+    case disconnected
+    case timeout
+    case unsupported
+    case invalidRequest
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "StopWatch 控制链路尚未就绪。"
+        case .disconnected: "StopWatch 控制链路已断开。"
+        case .timeout: "StopWatch 未在 30 秒内响应。"
+        case .unsupported: "StopWatch 固件不支持这项操作。"
+        case .invalidRequest: "App 发出了无效的设备请求。"
+        case .invalidResponse: "StopWatch 返回了不匹配的响应。"
         }
     }
 }

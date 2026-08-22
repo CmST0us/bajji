@@ -3,6 +3,9 @@ import Foundation
 
 struct BridgeInfo: Equatable, Sendable {
     static let encodedSize = 22
+    static let baseCapabilities: UInt8 = 0x07
+    static let settingsCapability: UInt8 = 0x08
+    static let wallpaperCapability: UInt8 = 0x10
 
     let capabilities: UInt8
     let psm: UInt16

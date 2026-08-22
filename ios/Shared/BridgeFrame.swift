@@ -6,6 +6,7 @@ enum BridgeProtocolError: Error, Equatable {
     case invalidPayloadLength
     case oversizedBuffer
     case invalidBridgeInfo
+    case incompleteFrame
 }
 
 struct BridgeFrame: Equatable, Sendable {
@@ -47,6 +48,15 @@ struct BridgeFrame: Equatable, Sendable {
             case .error: length == 2
             }
         }
+
+        var controlResponse: Kind? {
+            switch self {
+            case .settingsGet, .settingsSet: .settingsState
+            case .wallpaperBegin, .wallpaperChunk, .wallpaperCommit, .wallpaperCancel:
+                .wallpaperResult
+            default: nil
+            }
+        }
     }
 
     let type: Kind
@@ -65,6 +75,15 @@ struct BridgeFrame: Equatable, Sendable {
         ])
         encoded.append(payload)
         return encoded
+    }
+
+    static func decode(_ data: Data) throws -> BridgeFrame {
+        var parser = BridgeStreamParser()
+        let frames = try parser.append(data)
+        guard frames.count == 1, try frames[0].encode() == data else {
+            throw BridgeProtocolError.incompleteFrame
+        }
+        return frames[0]
     }
 
     static func crc32<S: DataProtocol>(_ bytes: S) -> UInt32 {

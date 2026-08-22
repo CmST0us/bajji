@@ -35,12 +35,30 @@ struct BluetoothDiagnostics: Decodable {
     let deviceID: String
     let psm: UInt16
     let maximumPayload: UInt16
+    let capabilities: UInt8
     let rssi: Int
     let receivedBytes: UInt64
     let sentBytes: UInt64
     let reconnects: Int
     let queueOverflows: Int
     let lastError: String
+}
+
+enum DeviceDisplayMode: UInt8, Sendable {
+    case cover = 0
+    case fitBlur = 1
+}
+
+struct DeviceSettings: Equatable, Sendable {
+    let brightnessPercent: UInt8
+    let displayMode: DeviceDisplayMode
+    let autoRefreshMinutes: UInt16
+}
+
+enum WallpaperTransferStage: Equatable {
+    case sending
+    case validating
+    case complete
 }
 
 enum TunnelState {
@@ -147,6 +165,98 @@ final class TunnelManager {
         }
     }
 
+    func readDeviceSettings() async throws -> DeviceSettings {
+        let response = try await sendFrame(type: .settingsGet, payload: Data())
+        let bytes = [UInt8](response.payload)
+        guard bytes.count == 6, bytes[1] == 1,
+              let mode = DeviceDisplayMode(rawValue: bytes[3]) else {
+            throw TunnelError.invalidResponse
+        }
+        try validateStatus(bytes[0])
+        return DeviceSettings(
+            brightnessPercent: bytes[2],
+            displayMode: mode,
+            autoRefreshMinutes: UInt16(bytes[4]) << 8 | UInt16(bytes[5])
+        )
+    }
+
+    func applyDeviceSettings(_ settings: DeviceSettings) async throws -> DeviceSettings {
+        let minutes = settings.autoRefreshMinutes
+        let payload = Data([
+            1, settings.brightnessPercent, settings.displayMode.rawValue,
+            UInt8(truncatingIfNeeded: minutes >> 8), UInt8(truncatingIfNeeded: minutes)
+        ])
+        let response = try await sendFrame(type: .settingsSet, payload: payload)
+        let bytes = [UInt8](response.payload)
+        guard bytes.count == 6, bytes[1] == 1,
+              let mode = DeviceDisplayMode(rawValue: bytes[3]) else {
+            throw TunnelError.invalidResponse
+        }
+        try validateStatus(bytes[0])
+        return DeviceSettings(
+            brightnessPercent: bytes[2],
+            displayMode: mode,
+            autoRefreshMinutes: UInt16(bytes[4]) << 8 | UInt16(bytes[5])
+        )
+    }
+
+    func sendWallpaper(_ data: Data,
+                       progress: (WallpaperTransferStage, Double) -> Void) async throws {
+        guard !data.isEmpty, data.count <= 3 * 1024 * 1024 else {
+            throw TunnelError.invalidWallpaper
+        }
+        let size = UInt32(data.count)
+        let checksum = BridgeFrame.crc32(data)
+        let begin = Data([
+            1, 1,
+            UInt8(truncatingIfNeeded: size >> 24), UInt8(truncatingIfNeeded: size >> 16),
+            UInt8(truncatingIfNeeded: size >> 8), UInt8(truncatingIfNeeded: size),
+            UInt8(truncatingIfNeeded: checksum >> 24), UInt8(truncatingIfNeeded: checksum >> 16),
+            UInt8(truncatingIfNeeded: checksum >> 8), UInt8(truncatingIfNeeded: checksum)
+        ])
+        var began = false
+        do {
+            try await sendWallpaperFrame(type: .wallpaperBegin, payload: begin, expectedOffset: 0)
+            began = true
+            progress(.sending, 0)
+            var offset = 0
+            while offset < data.count {
+                try Task.checkCancellation()
+                let end = min(offset + 1024, data.count)
+                let position = UInt32(offset)
+                var payload = Data([
+                    UInt8(truncatingIfNeeded: position >> 24),
+                    UInt8(truncatingIfNeeded: position >> 16),
+                    UInt8(truncatingIfNeeded: position >> 8), UInt8(truncatingIfNeeded: position)
+                ])
+                payload.append(data[offset..<end])
+                try await sendWallpaperFrame(
+                    type: .wallpaperChunk,
+                    payload: payload,
+                    expectedOffset: UInt32(end)
+                )
+                offset = end
+                progress(.sending, Double(offset) / Double(data.count))
+            }
+            progress(.validating, 1)
+            try await sendWallpaperFrame(
+                type: .wallpaperCommit,
+                payload: Data(),
+                expectedOffset: size
+            )
+            progress(.complete, 1)
+        } catch {
+            if began {
+                try? await sendWallpaperFrame(
+                    type: .wallpaperCancel,
+                    payload: Data(),
+                    expectedOffset: 0
+                )
+            }
+            throw error
+        }
+    }
+
     private func perform(_ operation: () async throws -> Void) async {
         guard !isBusy else { return }
         isBusy = true
@@ -165,11 +275,59 @@ final class TunnelManager {
         }
     }
 
+    private func sendFrame(type: BridgeFrame.Kind, payload: Data) async throws -> BridgeFrame {
+        guard let expected = type.controlResponse else { throw TunnelError.invalidResponse }
+        let session = try await connectedSession()
+        let request = BridgeFrame(type: type, sequence: 0, payload: payload)
+        let response = try BridgeFrame.decode(try await send(try request.encode(), through: session))
+        if response.type == .error {
+            let bytes = [UInt8](response.payload)
+            let code = bytes.count == 2 ? UInt16(bytes[0]) << 8 | UInt16(bytes[1]) : 0
+            throw TunnelError.bridgeError(code)
+        }
+        guard response.type == expected else { throw TunnelError.invalidResponse }
+        return response
+    }
+
+    private func sendWallpaperFrame(type: BridgeFrame.Kind, payload: Data,
+                                    expectedOffset: UInt32) async throws {
+        let response = try await sendFrame(type: type, payload: payload)
+        let bytes = [UInt8](response.payload)
+        guard bytes.count == 6, bytes[0] == type.rawValue else {
+            throw TunnelError.invalidResponse
+        }
+        try validateStatus(bytes[1])
+        let accepted = UInt32(bytes[2]) << 24 | UInt32(bytes[3]) << 16 |
+            UInt32(bytes[4]) << 8 | UInt32(bytes[5])
+        guard accepted == expectedOffset else { throw TunnelError.invalidResponse }
+    }
+
+    private func validateStatus(_ status: UInt8) throws {
+        guard status == 0 else { throw TunnelError.deviceStatus(status) }
+    }
+
+    private func connectedSession() async throws -> NETunnelProviderSession {
+        if manager == nil { manager = try await loadManager() }
+        guard let session = manager?.connection as? NETunnelProviderSession,
+              session.status == .connected else {
+            throw TunnelError.notConnected
+        }
+        return session
+    }
+
     private func send(_ command: String, through session: NETunnelProviderSession) async throws -> Data {
+        try await send(Data(command.utf8), through: session)
+    }
+
+    private func send(_ message: Data, through session: NETunnelProviderSession) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             do {
-                try session.sendProviderMessage(Data(command.utf8)) { data in
-                    continuation.resume(returning: data ?? Data())
+                try session.sendProviderMessage(message) { data in
+                    guard let data, !data.isEmpty else {
+                        continuation.resume(throwing: TunnelError.invalidResponse)
+                        return
+                    }
+                    continuation.resume(returning: data)
                 }
             } catch {
                 continuation.resume(throwing: error)
@@ -205,6 +363,30 @@ final class TunnelManager {
 
 private enum TunnelError: LocalizedError {
     case notInstalled
+    case notConnected
+    case invalidResponse
+    case invalidWallpaper
+    case bridgeError(UInt16)
+    case deviceStatus(UInt8)
 
-    var errorDescription: String? { "请先安装 Bajji VPN 配置。" }
+    var errorDescription: String? {
+        switch self {
+        case .notInstalled: "请先安装 Bajji VPN 配置。"
+        case .notConnected: "请先启动 VPN 控制连接，并等待蓝牙链路就绪。"
+        case .invalidResponse: "StopWatch 返回了无法识别的响应。"
+        case .invalidWallpaper: "壁纸文件为空或超过 3 MB。"
+        case let .bridgeError(code):
+            code == 1 ? "StopWatch 控制链路尚未就绪或固件不支持此功能。" : "控制扩展拒绝了请求（\(code)）。"
+        case let .deviceStatus(status):
+            switch status {
+            case 1: "StopWatch 当前状态不允许此操作。"
+            case 2: "发送给 StopWatch 的参数无效。"
+            case 3: "StopWatch 无法写入本地存储。"
+            case 4: "壁纸校验失败，请重新发送。"
+            case 5: "StopWatch 不支持这张图片的格式或尺寸。"
+            case 6: "StopWatch 正忙，请稍后重试。"
+            default: "StopWatch 返回错误状态（\(status)）。"
+            }
+        }
+    }
 }

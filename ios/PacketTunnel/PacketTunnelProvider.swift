@@ -69,10 +69,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
 
     override func handleAppMessage(_ messageData: Data,
                                    completionHandler: ((Data?) -> Void)? = nil) {
+        let completion = ProviderMessageCompletion(completionHandler)
+        if messageData.starts(with: BridgeFrame.magic) {
+            handleControlMessage(messageData, completion: completion)
+            return
+        }
         switch String(data: messageData, encoding: .utf8) {
         case "binding:clear":
             bridge?.clearBinding()
-            completionHandler?(Data("ok".utf8))
+            completion.call(Data("ok".utf8))
         default:
             let snapshot = TunnelSnapshot(
                 internet: stateLock.withLock { internetState },
@@ -81,8 +86,38 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            completionHandler?(try? encoder.encode(snapshot))
+            completion.call(try? encoder.encode(snapshot))
         }
+    }
+
+    private func handleControlMessage(_ data: Data, completion: ProviderMessageCompletion) {
+        do {
+            let request = try BridgeFrame.decode(data)
+            guard request.type.controlResponse != nil, let bridge else {
+                completion.call(errorFrame(sequence: request.sequence, code: 1))
+                return
+            }
+            bridge.request(type: request.type, payload: request.payload) { [weak self] result in
+                switch result {
+                case let .success(response):
+                    completion.call(try? response.encode())
+                case let .failure(error):
+                    self?.logger.error("device request failed: \(error.localizedDescription, privacy: .public)")
+                    completion.call(self?.errorFrame(sequence: request.sequence, code: 1))
+                }
+            }
+        } catch {
+            logger.error("invalid app control message: \(error.localizedDescription, privacy: .public)")
+            completion.call(errorFrame(sequence: 0, code: 2))
+        }
+    }
+
+    private func errorFrame(sequence: UInt16, code: UInt16) -> Data? {
+        try? BridgeFrame(
+            type: .error,
+            sequence: sequence,
+            payload: Data([UInt8(code >> 8), UInt8(code)])
+        ).encode()
     }
 
     private func configure(_ bridge: BluetoothBridge) {
@@ -187,6 +222,14 @@ private final class TunnelStartCompletion: @unchecked Sendable {
 
     init(_ call: @escaping (Error?) -> Void) {
         self.call = call
+    }
+}
+
+private final class ProviderMessageCompletion: @unchecked Sendable {
+    let call: (Data?) -> Void
+
+    init(_ call: ((Data?) -> Void)?) {
+        self.call = { data in call?(data) }
     }
 }
 
