@@ -1196,7 +1196,7 @@ private struct DiagnosticsView: View {
                         Text("实时诊断")
                             .font(.headline)
                             .padding(.bottom, 8)
-                        StatusRow(label: "Internet", value: diagnostics.internet)
+                        StatusRow(label: "互联网", value: internetStatus(diagnostics.internet))
                         Divider()
                         StatusRow(label: "BLE RSSI", value: rssiText(diagnostics.bluetooth.rssi))
                         Divider()
@@ -1312,6 +1312,14 @@ private struct DiagnosticsView: View {
         value == 0 ? "—" : "\(value) dBm"
     }
 
+    private func internetStatus(_ value: String) -> String {
+        switch value.lowercased() {
+        case "online", "connected": "已联网"
+        case "offline", "disconnected": "离线"
+        default: value
+        }
+    }
+
     private func formattedBytes(_ value: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .binary)
     }
@@ -1376,6 +1384,8 @@ private struct BajjiArtwork: View {
 }
 
 private struct BajjiPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
@@ -1384,10 +1394,12 @@ private struct BajjiPrimaryButtonStyle: ButtonStyle {
             .background(Color.bajjiAccent.opacity(configuration.isPressed ? 0.78 : 1))
             .clipShape(.rect(cornerRadius: 16))
             .shadow(color: .bajjiAccent.opacity(0.14), radius: 7, y: 6)
+            .opacity(isEnabled ? 1 : 0.42)
     }
 }
 
 private struct BajjiOutlineButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     var color: Color = .bajjiAccent
 
     func makeBody(configuration: Configuration) -> some View {
@@ -1401,10 +1413,13 @@ private struct BajjiOutlineButtonStyle: ButtonStyle {
                     .stroke(color, lineWidth: 1)
             }
             .clipShape(.rect(cornerRadius: 16))
+            .opacity(isEnabled ? 1 : 0.42)
     }
 }
 
 private struct BajjiDestructiveButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
@@ -1412,6 +1427,7 @@ private struct BajjiDestructiveButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity, minHeight: 54)
             .background(Color.red.opacity(configuration.isPressed ? 0.78 : 1))
             .clipShape(.rect(cornerRadius: 16))
+            .opacity(isEnabled ? 1 : 0.36)
     }
 }
 

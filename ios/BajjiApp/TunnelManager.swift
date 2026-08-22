@@ -62,8 +62,8 @@ final class TunnelManager {
     ) as! String
     private var manager: NETunnelProviderManager?
 
-    var status = "Not installed"
-    var detail = "Install the VPN profile, then start the bridge."
+    var status = "尚未安装"
+    var detail = "安装 VPN 配置后即可启动备用链路。"
     var diagnostics: TunnelDiagnostics?
     var isBusy = false
     var state: TunnelState = .notInstalled
@@ -92,7 +92,7 @@ final class TunnelManager {
             self.manager = manager
             self.state = .installed
             self.status = self.statusText(self.state)
-            self.detail = "VPN profile is ready."
+            self.detail = "VPN 配置已就绪。"
         }
     }
 
@@ -105,7 +105,7 @@ final class TunnelManager {
             try manager.connection.startVPNTunnel()
             self.state = .connecting
             self.status = self.statusText(self.state)
-            self.detail = "Pair when prompted; the StopWatch will use the iPhone uplink."
+            self.detail = "系统提示时完成配对；StopWatch 随后会使用 iPhone 上行链路。"
         }
     }
 
@@ -136,12 +136,12 @@ final class TunnelManager {
     func clearBinding() async {
         guard let session = manager?.connection as? NETunnelProviderSession,
               session.status == .connected else {
-            detail = "Start the tunnel before clearing its saved Device ID."
+            detail = "请先启动 VPN，再清除已保存的设备标识。"
             return
         }
         do {
             _ = try await send("binding:clear", through: session)
-            detail = "Pairing reset requested. Re-pair when prompted; iOS Settings is not required."
+            detail = "已请求重置配对；按系统提示重新配对即可，无需前往 iOS 设置。"
         } catch {
             detail = error.localizedDescription
         }
@@ -191,14 +191,14 @@ final class TunnelManager {
 
     private func statusText(_ value: TunnelState) -> String {
         switch value {
-        case .notInstalled: "Not installed"
-        case .installed: "Ready"
-        case .connecting: "Connecting"
-        case .connected: "Connected"
-        case .reconnecting: "Reconnecting"
-        case .disconnecting: "Disconnecting"
-        case .invalid: "Invalid"
-        case .unknown: "Unknown"
+        case .notInstalled: "尚未安装"
+        case .installed: "已就绪"
+        case .connecting: "正在连接"
+        case .connected: "已连接"
+        case .reconnecting: "正在重连"
+        case .disconnecting: "正在断开"
+        case .invalid: "配置无效"
+        case .unknown: "未知状态"
         }
     }
 }
@@ -206,5 +206,5 @@ final class TunnelManager {
 private enum TunnelError: LocalizedError {
     case notInstalled
 
-    var errorDescription: String? { "Install the Bajji VPN profile first." }
+    var errorDescription: String? { "请先安装 Bajji VPN 配置。" }
 }
