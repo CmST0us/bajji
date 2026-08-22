@@ -145,11 +145,11 @@ threshold 按 ESP-IDF `wifi-security.rst:166` 要求设为 open，以兼容 OWE 
 产生 `ESP_ERR_WIFI_CONN`。任何成功提交的新连接请求现在都会取消旧 timer；后续真实断线事件仍会重新
 安排 timer。断线日志也新增 reason 名称与 RSSI，iOS 日志新增完整 security policy 集合，便于下一轮
 区分安全模式、信号门槛和密码握手失败。修复已通过两端 host tests、Swift 11/11、iPhoneOS 与 ESP-IDF
-完整构建，尚待重新安装 App、烧写固件后真机验证。
+完整构建；重新安装 App、烧写固件并再次分享凭据后，已确认配网与连接逻辑打通。
 
 ## 已验证与未验证
 
 已用 iPhoneOS 26.5 SDK 编译通过 App、Packet Tunnel 和 ATE，并用 C/Swift 单元测试核对了两端
-payload。真机已验证宿主授权返回 `automatic`、ATE 进程启动及 BLE 加密绑定；尚未验证修正 service
-key、CoreBluetooth 生命周期后的 provider event、GATT write 和设备入网。Apple 当前把正式可用范围限制在符合条件的欧盟
+payload。真机已验证宿主授权、ATE provider event、BLE 加密 GATT 写入、设备端凭据解码和连接流程；
+长期运行及 Wi-Fi/手机链路反复切换仍需持续验证。Apple 当前把正式可用范围限制在符合条件的欧盟
 Apple Account 与位于欧盟的设备；其他地区只能按 Apple 文档做开发测试。
