@@ -7,8 +7,8 @@ static int contains_zero(const uint8_t* bytes, size_t length) {
     return memchr(bytes, 0, length) != NULL;
 }
 
-static int credential_lengths_valid(wifi_provision_security_t security,
-                                    size_t password_length) {
+int wifi_provision_credentials_valid(wifi_provision_security_t security,
+                                     size_t password_length) {
     switch (security) {
         case WIFI_PROVISION_OPEN:
         case WIFI_PROVISION_OWE:
@@ -36,7 +36,7 @@ int wifi_provision_decode(const uint8_t* payload, size_t length,
         length != 4 + ssid_length + password_length ||
         contains_zero(payload + 4, ssid_length) ||
         contains_zero(payload + 4 + ssid_length, password_length) ||
-        !credential_lengths_valid(security, password_length)) {
+        !wifi_provision_credentials_valid(security, password_length)) {
         return 0;
     }
     memset(credentials, 0, sizeof(*credentials));

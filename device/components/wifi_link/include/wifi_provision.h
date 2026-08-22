@@ -29,6 +29,8 @@ typedef struct {
     uint8_t password_length;
 } wifi_provision_credentials_t;
 
+int wifi_provision_credentials_valid(wifi_provision_security_t security,
+                                     size_t password_length);
 int wifi_provision_decode(const uint8_t* payload, size_t length,
                           wifi_provision_credentials_t* credentials);
 
