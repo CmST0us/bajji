@@ -8,15 +8,16 @@
 
 ---
 
-## 2026-08-22 · 壁纸 HTTPS 失败已定位为 Mbed TLS 内部 DRAM 分配失败，尚未修复
+## 2026-08-23 · 壁纸 HTTPS 的 Mbed TLS 内部 DRAM 分配失败已修配置，待真机验证
 
 真机日志 `mbedtls_ssl_setup returned -0x008D` 中的 `-0x008D` 是 Mbed TLS 4 的
-`PSA_ERROR_INSUFFICIENT_MEMORY`。当前 `CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y` 强制约 16.7 KiB 的 TLS
+`PSA_ERROR_INSUFFICIENT_MEMORY`。原 `CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC=y` 强制约 16.7 KiB 的 TLS
 输入缓冲区及其他握手对象只使用内部 DRAM，8 MB PSRAM 不参与；因此失败发生在握手前，不是证书、
-DNS、Cloudflare 或 HTTP 错误。建议下一步改用 `CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC`，让略大于
+DNS、Cloudflare 或 HTTP 错误。修复改用 `CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC`，让略大于
 `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384` 的输入缓冲区优先去 PSRAM，并用 internal/PSRAM largest
-block 日志做真机确认。尚未修改固件配置，完整依据见
-[`wiki/mbedtls-ssl-setup-memory.md`](wiki/mbedtls-ssl-setup-memory.md)。
+block 日志做真机确认。默认配置与生成配置已同步；ESP-IDF 6.0 全量构建通过，固件 `0x25bd20`，分区余量 61%。烧写时
+`/dev/cu.usbmodem101` 被已有的 `idf.py build flash monitor` 占用，因此尚未写入设备、未验证 HTTPS。
+完整依据见 [`wiki/mbedtls-ssl-setup-memory.md`](wiki/mbedtls-ssl-setup-memory.md)。
 
 ## 2026-08-22 · 用户自选网络、control-only BLE 与方形 PNG 已实现，待真机验收
 

@@ -34,9 +34,9 @@ wallpaper: image download failed: ESP_ERR_HTTP_CONNECT status=0 bytes=0
 - `wifi:<ba-add>` 是 Wi-Fi Block Ack 建立日志，不是错误。它可能改变当时的内存余量，但不是返回码含义。
 - 五次立即重试不会释放其他任务占用或消除堆碎片，所以不能修复这个确定性的分配失败。
 
-## 建议处理
+## 采用的处理
 
-优先把 Mbed TLS 分配模式改成 `CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y`，不要直接强制全部放入 PSRAM。
+把 Mbed TLS 分配模式改成 `CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y`，没有直接强制全部放入 PSRAM。
 Bajji 已设置 `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384`；ESP-IDF 默认分配器会让不超过 16 KiB 的
 分配优先走内部内存，让略大于 16 KiB 的 TLS 输入缓冲区优先走 PSRAM，并在首选堆失败后回退
 （`$IDF_PATH/components/heap/heap_caps.c:107`）。这比 `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` 更少地把

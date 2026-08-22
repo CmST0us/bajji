@@ -51,6 +51,10 @@ CONFIG_LV_USE_QRCODE=y
 # CONFIG_LV_USE_LIBWEBP is not set
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# The TLS input record is slightly larger than 16 KiB. Use the default allocator so
+# CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL keeps smaller objects internal while this buffer
+# can use PSRAM instead of failing when contiguous internal DRAM is exhausted.
+CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 # Google Trust Services and Cloudflare hosts send their root cross-signed by an older CA, so
 # the last certificate in the chain is GTS Root R4 issued by GlobalSign Root CA. esp_crt_bundle
 # looks the trust anchor up by the issuer of that last certificate (esp_crt_bundle.c:334), and
