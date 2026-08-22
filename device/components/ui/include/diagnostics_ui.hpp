@@ -17,6 +17,7 @@ public:
     void create(const ble_link_status_t& link, const WallpaperStatus& wallpaper);
     void refresh(const BoardStatus& board, const ble_link_status_t& link,
                  const WallpaperStatus& wallpaper, const ButtonEvents& buttons);
+    bool image_visible() const;
 
 private:
     enum class Page : std::uint8_t {
@@ -41,6 +42,7 @@ private:
 
     void show(Page page, const WallpaperStatus& wallpaper, std::uint32_t passkey = 0);
     void show_image(const WallpaperStatus& wallpaper);
+    void update_image_rotation(float degrees);
     void show_controls();
     void hide_hold();
     void update_settings_labels();
@@ -64,6 +66,7 @@ private:
     static void type_row_clicked(_lv_event_t* event);
     static void pairing_row_clicked(_lv_event_t* event);
     static void brightness_row_clicked(_lv_event_t* event);
+    static void auto_rotation_clicked(_lv_event_t* event);
     static void timed_refresh_row_clicked(_lv_event_t* event);
     static void back_clicked(_lv_event_t* event);
     static void repair_clicked(_lv_event_t* event);

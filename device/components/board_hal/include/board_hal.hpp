@@ -17,15 +17,6 @@ struct TouchPoint {
     std::int16_t y = -1;
 };
 
-struct ImuSample {
-    float accel_x = 0;
-    float accel_y = 0;
-    float accel_z = 0;
-    float gyro_x = 0;
-    float gyro_y = 0;
-    float gyro_z = 0;
-};
-
 struct BoardStatus {
     Health pmic = Health::unavailable;
     Health io_expander = Health::unavailable;
@@ -40,8 +31,9 @@ struct BoardStatus {
     std::uint8_t battery_percent = 0;
     bool charging = false;
     std::uint8_t brightness = 60;
+    bool auto_rotation_enabled = true;
+    float image_rotation_degrees = 0.0f;
     TouchPoint touch_point{};
-    ImuSample imu_sample{};
     std::array<char, 24> rtc_text{};
 };
 
@@ -51,10 +43,12 @@ public:
 
     esp_err_t init();
     BoardStatus snapshot();
-    void poll();
+    void poll(bool sample_imu);
 
     void set_brightness(std::uint8_t percent);
     std::uint8_t brightness() const;
+    void set_auto_rotation_enabled(bool enabled);
+    bool auto_rotation_enabled() const;
     void vibrate(std::uint16_t duration_ms, std::uint8_t strength = 60);
     void stop_vibration();
     void play_tone(std::uint16_t frequency_hz, std::uint16_t duration_ms);

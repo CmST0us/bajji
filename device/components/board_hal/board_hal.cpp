@@ -57,8 +57,12 @@ constexpr int kDisplayInitAttempts = 3;
 constexpr int kDisplayTeTimeoutMs = 100;
 constexpr int kIoeWriteAttempts = 5;
 constexpr int kIoeWriteRetryMs = 2;
+constexpr std::int64_t kImuPollPeriodUs = 33000;
+constexpr float kAccelScale = 8192.0f;
+constexpr float kGyroScale = 16.384f;
 constexpr char kBoardNvsNamespace[] = "board";
 constexpr char kBrightnessKey[] = "brightness";
+constexpr char kAutoRotationKey[] = "auto_rotate";
 // One buffer tall enough for the whole screen: LVGL renders each invalidated area in a
 // single pass, so there are no chunk seams, while the panel still pushes only the dirty
 // rect. The flush is synchronous, so a second buffer would buy nothing.
@@ -77,6 +81,9 @@ ButtonState buttons;
 portMUX_TYPE button_mux = portMUX_INITIALIZER_UNLOCKED;
 std::int64_t motor_stop_us = 0;
 std::int64_t battery_poll_us = 0;
+std::int64_t imu_poll_us = 0;
+ImageRotationState image_rotation;
+bool imu_sampling = false;
 
 // Mirrors m5gfx::Panel_StopWatch (M5GFX.cpp:820-846), which M5GFX.cpp defines at file
 // scope and does not export in a header. Panel_CO5300 supplies the depths and
@@ -214,23 +221,29 @@ bool init_pmic() {
     return true;
 }
 
-void load_brightness(BoardStatus& status) {
+void load_board_settings(BoardStatus& status) {
     nvs_handle_t handle = 0;
     if (nvs_open(kBoardNvsNamespace, NVS_READONLY, &handle) != ESP_OK) return;
     std::uint8_t value = status.brightness;
     if (nvs_get_u8(handle, kBrightnessKey, &value) == ESP_OK && value <= 100) {
         status.brightness = value;
     }
+    value = status.auto_rotation_enabled ? 1 : 0;
+    if (nvs_get_u8(handle, kAutoRotationKey, &value) == ESP_OK && value <= 1) {
+        status.auto_rotation_enabled = value != 0;
+    }
     nvs_close(handle);
 }
 
-void persist_brightness(std::uint8_t value) {
+void persist_board_setting(const char* key, std::uint8_t value) {
     nvs_handle_t handle = 0;
     esp_err_t result = nvs_open(kBoardNvsNamespace, NVS_READWRITE, &handle);
-    if (result == ESP_OK) result = nvs_set_u8(handle, kBrightnessKey, value);
+    if (result == ESP_OK) result = nvs_set_u8(handle, key, value);
     if (result == ESP_OK) result = nvs_commit(handle);
     if (handle) nvs_close(handle);
-    if (result != ESP_OK) ESP_LOGW(kTag, "brightness persistence failed: %s", esp_err_to_name(result));
+    if (result != ESP_OK) {
+        ESP_LOGW(kTag, "%s persistence failed: %s", key, esp_err_to_name(result));
+    }
 }
 
 // Pulse the OLED (IO5) and touch (IO4) reset lines together, as M5GFX.cpp:1916-1920 does.
@@ -568,7 +581,7 @@ esp_err_t BoardHal::init() {
         if (nvs_result == ESP_OK) nvs_result = nvs_flash_init();
     }
     if (nvs_result != ESP_OK || !init_i2c()) return nvs_result == ESP_OK ? ESP_FAIL : nvs_result;
-    load_brightness(status_);
+    load_board_settings(status_);
 
     status_.pmic = init_pmic() ? Health::ok : Health::error;
     status_.io_expander = init_ioe() ? Health::ok : Health::error;
@@ -586,15 +599,16 @@ esp_err_t BoardHal::init() {
     // GIF rendering and image-mode changes can block the main loop for hundreds of
     // milliseconds, so the ESP timer task owns the 10 ms button state sampling.
     status_.buttons = init_buttons() ? Health::ok : Health::error;
-    poll();
+    poll(false);
     ESP_LOGI(kTag, "hardware bring-up complete");
     return status_.display == Health::ok ? ESP_OK : ESP_FAIL;
 }
 
 BoardStatus BoardHal::snapshot() { return status_; }
 
-void BoardHal::poll() {
+void BoardHal::poll(bool sample_imu) {
     const auto now = esp_timer_get_time();
+    sample_imu = sample_imu && status_.auto_rotation_enabled;
 
     if (motor_stop_us && now >= motor_stop_us) stop_vibration();
     if (now - battery_poll_us >= 1000000) {
@@ -615,11 +629,37 @@ void BoardHal::poll() {
         if (rtc_device) update_rtc(status_);
     }
 
-    // No IMU sampling here. Nothing reads status_.imu_sample, and polling it cost four
-    // multi-byte transactions every 250 ms on I2C_NUM_0 - the same bus the LVGL task must
-    // take for every touch read while it holds the LVGL lock, so each collision stalled
-    // render and input for the length of the transaction (wiki/shared-i2c-bus.md). The
-    // sensor is still brought up in init_imu(); add the reads back next to their consumer.
+    if (!sample_imu) {
+        imu_sampling = false;
+        image_rotation = {};
+        status_.image_rotation_degrees = 0.0f;
+        return;
+    }
+    if (!imu) return;
+    if (!imu_sampling) {
+        imu_sampling = true;
+        imu_poll_us = 0;
+        image_rotation = {};
+    }
+    if (imu_poll_us && now - imu_poll_us < kImuPollPeriodUs) return;
+
+    const float elapsed_seconds = imu_poll_us
+                                      ? static_cast<float>(now - imu_poll_us) / 1000000.0f
+                                      : 0.0f;
+    imu_poll_us = now;
+    bmi2_sens_data data{};
+    if (bmi2_get_sensor_data(&data, &imu->bmi2) != BMI2_OK) return;
+
+    // M5Stack's StopWatch demo swaps BMI270 X/Y and uses gyro Z as the screen-normal axis:
+    // M5StopWatch-UserDemo/main/hal/hal_imu.cpp:35-40. Read both sensors in one Bosch API
+    // transaction instead of the wrapper's separate availability and data calls; all share
+    // I2C_NUM_0 with touch (wiki/shared-i2c-bus.md).
+    const float accel_x = data.acc.y / kAccelScale;
+    const float accel_y = data.acc.x / kAccelScale;
+    const float gyro_z = data.gyr.z / kGyroScale;
+    image_rotation = update_image_rotation(image_rotation, accel_x, accel_y, gyro_z,
+                                           elapsed_seconds);
+    status_.image_rotation_degrees = image_rotation.degrees;
 }
 
 void BoardHal::set_brightness(std::uint8_t percent) {
@@ -627,10 +667,21 @@ void BoardHal::set_brightness(std::uint8_t percent) {
     if (status_.brightness == percent) return;
     status_.brightness = percent;
     if (display) display->set_brightness(status_.brightness);
-    persist_brightness(status_.brightness);
+    persist_board_setting(kBrightnessKey, status_.brightness);
 }
 
 std::uint8_t BoardHal::brightness() const { return status_.brightness; }
+
+void BoardHal::set_auto_rotation_enabled(bool enabled) {
+    if (status_.auto_rotation_enabled == enabled) return;
+    status_.auto_rotation_enabled = enabled;
+    imu_sampling = false;
+    image_rotation = {};
+    status_.image_rotation_degrees = 0.0f;
+    persist_board_setting(kAutoRotationKey, enabled ? 1 : 0);
+}
+
+bool BoardHal::auto_rotation_enabled() const { return status_.auto_rotation_enabled; }
 
 void BoardHal::vibrate(std::uint16_t duration_ms, std::uint8_t strength) {
     if (!ioe) return;

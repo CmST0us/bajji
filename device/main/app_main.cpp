@@ -40,8 +40,10 @@ extern "C" void app_main() {
     }
 
     bajji::ProductUI ui;
+    bool sample_imu = false;
     if (board.snapshot().display == bajji::Health::ok && board.lvgl_lock()) {
         ui.create(ble_link_snapshot(), bajji::wallpaper_snapshot());
+        sample_imu = ui.image_visible() && board.auto_rotation_enabled();
         board.lvgl_unlock();
     }
 
@@ -52,8 +54,8 @@ extern "C" void app_main() {
     std::uint64_t last_tx_bytes = 0;
     while (true) {
         // GPIO sampling runs in the 10 ms timer callback. Drain its state independently
-        // of the heavier UI/status refresh so edges do not wait for the 100 ms cadence.
-        board.poll();
+        // of the heavier UI/status refresh so edges do not wait for its cadence.
+        board.poll(sample_imu);
         const bajji::ButtonEvents buttons = board.take_button_events();
         // Keep edges until the UI lock succeeds, but use the latest hold progress.
         pending_buttons.a_pressed |= buttons.a_pressed;
@@ -68,8 +70,9 @@ extern "C" void app_main() {
                                    pending_buttons.chord_completed ||
                                    pending_buttons.chord_cancelled ||
                                    pending_buttons.chord_progress_ms;
-        if (!input_pending && now - last_ui_tick < pdMS_TO_TICKS(100)) {
-            vTaskDelay(pdMS_TO_TICKS(10));
+        const TickType_t ui_period = pdMS_TO_TICKS(sample_imu ? 33 : 100);
+        if (!input_pending && now - last_ui_tick < ui_period) {
+            vTaskDelay(pdMS_TO_TICKS(sample_imu ? 3 : 10));
             continue;
         }
         const ble_link_status_t link = ble_link_snapshot();
@@ -85,6 +88,7 @@ extern "C" void app_main() {
         // wait for the current render to release LVGL instead of missing every short gap.
         if (board.lvgl_lock(input_pending ? 1000 : 0)) {
             ui.refresh(board.snapshot(), link, wallpaper, pending_buttons);
+            sample_imu = ui.image_visible() && board.auto_rotation_enabled();
             pending_buttons = {};
             last_ui_tick = now;
             board.lvgl_unlock();
@@ -107,6 +111,6 @@ extern "C" void app_main() {
             last_rx_bytes = link.rx_bytes;
             last_tx_bytes = link.tx_bytes;
         }
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(sample_imu ? 3 : 10));
     }
 }

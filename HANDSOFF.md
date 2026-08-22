@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-08-22 · 图片“不倒翁”、性能优化与设置开关已完成，待真机复测
+
+图片页现在以约 30 Hz 单次读取 BMI270 的加速度和陀螺仪数据，用屏幕平面重力角与 `gyroZ` 互补融合，反向旋转前景图片和 fit 模式的 520×520 预模糊背景；离开图片页即停止采样。接近平放（平面投影 `<0.35 g`）时按用户选择立即回零。LVGL 的 `CONTAIN/COVER` 会清除 rotation，因此图片布局已改为等价的自然尺寸居中加显式 scale；旋转只遍历根节点的 image 类，按键 icon、veil 和提示层不动。
+
+设备设置主页已新增“自动旋转”原生开关，默认开启并以 `board/auto_rotate` 持久化；关闭时立即归零并重置姿态滤波器，图片页停止 IMU 采样且主循环回到 100 ms 周期，重新开启后首帧重建绝对姿态。设置主页的 6 行内容放进纵向滚动区域，保存按钮保持固定。首次真机发现“旋转”缺字，现已补进 `bajji_font_16` 子集；软件旋转也已统一关闭抗锯齿，减少每像素源数据读取。
+
+host tests 与 ESP-IDF 6.0 完整构建通过，固件大小 `0x238510`。尚需真机复查开关触摸、滚动、字形、重启持久化、实际 FPS，以及 0°/90°/180°/270° 的世界向上效果；若方向相反只调 `board_math.hpp` 的 `gyro_direction`/安装偏移常量。
+
 ## 2026-08-22 · 图片页解码结果改成跨页面复用，未编译未烧写
 
 `ProductUI` 新增 `media_revision_`：`show()` 只在壁纸 revision 变了才销毁 `webp_player_` / `still_image_` / `gif_source_` / `blurred_background_`，否则只调 `detach_webp_player()` 摘掉定时器和 widget 记录。`create_webp_player()` 拆出了 `attach_webp_player()`，所以 A 键切 cover/fit、以及设置页往返回图片页，只重建控件，不再重读文件、重解码 WebP、重做 520×520 模糊。代价是在别的页面上也一直占着约 2 MB PSRAM（共 8 MB）。

@@ -2,6 +2,7 @@
 #include "diagnostics_ui.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <inttypes.h>
@@ -256,6 +257,24 @@ const char* choice_label(const Choice* choices, std::size_t count, const char* v
 
 lv_draw_buf_t* blur_backdrop(const lv_draw_buf_t* source);
 
+bool layout_rotatable_image(lv_obj_t* image, std::int32_t box_size, bool cover) {
+    const std::int32_t width = lv_image_get_src_width(image);
+    const std::int32_t height = lv_image_get_src_height(image);
+    if (width <= 0 || height <= 0) return false;
+
+    // CONTAIN/COVER reset rotation in lv_image.c:999-1027. Keep the exact same scale math,
+    // but leave the image in its default alignment so lv_image_set_rotation() remains active.
+    const std::int32_t scale_x = box_size * LV_SCALE_NONE / width;
+    const std::int32_t scale_y = box_size * LV_SCALE_NONE / height;
+    lv_obj_set_size(image, width, height);
+    lv_obj_center(image);
+    lv_image_set_scale(image, cover ? LV_MAX(scale_x, scale_y) : LV_MIN(scale_x, scale_y));
+    // Rotation is software-rendered; antialiasing triples source reads per pixel
+    // (lv_draw_sw_transform.c:699-734) and makes full-screen updates miss 30 Hz.
+    lv_image_set_antialias(image, false);
+    return true;
+}
+
 struct WebPPlayer {
     std::uint8_t* file{};
     WebPAnimDecoder* decoder{};
@@ -320,17 +339,12 @@ bool attach_webp_player(WebPPlayer* player, lv_obj_t* parent, bool fit, bool ani
         auto* image = lv_image_create(parent);
         lv_image_set_src(image, background ? player->background : player->frame);
         if (background) {
-            lv_obj_set_pos(image, -27, -27);
-            lv_obj_set_size(image, 520, 520);
+            layout_rotatable_image(image, 520, true);
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
-            lv_obj_set_pos(image, kSafeX, kSafeX);
-            lv_obj_set_size(image, kSafeWidth, kSafeWidth);
-            lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
+            layout_rotatable_image(image, kSafeWidth, false);
         } else {
-            lv_obj_set_pos(image, 0, 0);
-            lv_obj_set_size(image, kDisplay, kDisplay);
-            lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
+            layout_rotatable_image(image, kDisplay, true);
         }
         lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
         // The blurred fit-mode backdrop is a snapshot of frame zero. Invalidating it for
@@ -431,7 +445,6 @@ void destroy_gif_source(GifSource* source) {
 // The blurred backdrop sits behind the wallpaper, larger than the screen so the blur's
 // edge falloff stays out of sight.
 constexpr int kBackdrop = 520;
-constexpr int kBackdropOffset = -27;
 
 // Render the backdrop once instead of leaving the blur as a style on a live widget.
 // LVGL expands any invalidation that touches a blurred widget to cover the whole of it
@@ -670,15 +683,36 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             }
             back_control(root_, back_clicked, this);
             settings_title(root_, "设备设置", 40);
-            setting_row(root_, 94, "分类", &category_value_,
+            auto* list = object(root_, 0, 94, kDisplay, 256, kBase, 0);
+            lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scroll_dir(list, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+            setting_row(list, 0, "分类", &category_value_,
                         category_row_clicked, this);
-            type_row_ = setting_row(root_, 146, "类型", &type_value_,
+            type_row_ = setting_row(list, 52, "类型", &type_value_,
                                     type_row_clicked, this);
-            setting_row(root_, 198, "配对设置", &pairing_value_,
+            setting_row(list, 104, "配对设置", &pairing_value_,
                         pairing_row_clicked, this);
-            setting_row(root_, 250, "屏幕亮度", &brightness_value_,
+            setting_row(list, 156, "屏幕亮度", &brightness_value_,
                         brightness_row_clicked, this);
-            setting_row(root_, 302, "定时刷新", &auto_refresh_value_,
+            auto* rotation_row = object(list, kSafeX, 208, kSafeWidth, 48, kSurface, 16);
+            lv_obj_set_style_border_width(rotation_row, 1, 0);
+            lv_obj_set_style_border_color(rotation_row, color(kOverlay), 0);
+            lv_obj_add_flag(rotation_row, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(rotation_row, auto_rotation_clicked, LV_EVENT_CLICKED, this);
+            label(rotation_row, "自动旋转", 20, 14, 180, kBodyFont, kPrimary,
+                  LV_TEXT_ALIGN_LEFT);
+            auto* rotation_switch = lv_switch_create(rotation_row);
+            lv_obj_set_pos(rotation_switch, 244, 8);
+            lv_obj_set_size(rotation_switch, 64, 32);
+            lv_obj_set_style_bg_color(rotation_switch, color(kOverlay), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(rotation_switch, color(kAccent), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_color(rotation_switch, color(kPrimary), LV_PART_KNOB);
+            lv_obj_remove_flag(rotation_switch, LV_OBJ_FLAG_CLICKABLE);
+            if (BoardHal::instance().auto_rotation_enabled()) {
+                lv_obj_add_state(rotation_switch, LV_STATE_CHECKED);
+            }
+            setting_row(list, 260, "定时刷新", &auto_refresh_value_,
                         timed_refresh_row_clicked, this);
             auto* save = object(root_, 99, 364, 268, 48, kAccent, 24);
             lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
@@ -1194,7 +1228,6 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
             if (gif) {
                 image = lv_gif_create(root_);
                 lv_gif_set_color_format(image, LV_COLOR_FORMAT_RGB565);
-                lv_image_set_antialias(image, false);
                 if (gif_source) lv_gif_set_src(image, &gif_source->dsc);
                 else lv_gif_set_src(image, wallpaper.lvgl_path);
                 if (background) lv_gif_pause(image);
@@ -1207,24 +1240,18 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
             }
         }
         if (background) {
-            lv_obj_set_pos(image, kBackdropOffset, kBackdropOffset);
-            lv_obj_set_size(image, kBackdrop, kBackdrop);
+            layout_rotatable_image(image, kBackdrop, true);
             if (!blurred_background_) {
                 // Keep the old, slower path only when allocating the pre-rendered buffer failed.
-                lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
                 lv_obj_set_style_blur_radius(image, 24, 0);
                 // No blur quality override: LV_BLUR_QUALITY_AUTO skips 3 pixels in 4
                 // (lv_draw_sw_blur.c:77-86) and this fallback redraws on every invalidation.
             }
             lv_obj_set_style_opa(image, LV_OPA_80, 0);
         } else if (fit) {
-            lv_obj_set_pos(image, kSafeX, kSafeX);
-            lv_obj_set_size(image, kSafeWidth, kSafeWidth);
-            lv_image_set_inner_align(image, LV_IMAGE_ALIGN_CONTAIN);
+            layout_rotatable_image(image, kSafeWidth, false);
         } else {
-            lv_obj_set_pos(image, 0, 0);
-            lv_obj_set_size(image, kDisplay, kDisplay);
-            lv_image_set_inner_align(image, LV_IMAGE_ALIGN_COVER);
+            layout_rotatable_image(image, kDisplay, true);
         }
         lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
         return image;
@@ -1349,6 +1376,17 @@ void ProductUI::show_image(const WallpaperStatus& wallpaper) {
           kBodyFont, kSecondary);
     lv_obj_add_flag(hold_overlay_, LV_OBJ_FLAG_HIDDEN);
     show_controls();
+}
+
+void ProductUI::update_image_rotation(float degrees) {
+    if (page_ != Page::image || !root_) return;
+    const std::int32_t rotation = static_cast<std::int32_t>(std::lround(degrees * 10.0f));
+    // ponytail: scan the image page's few direct children; store handles only if it grows.
+    const std::uint32_t count = lv_obj_get_child_count(root_);
+    for (std::uint32_t index = 0; index < count; ++index) {
+        auto* child = lv_obj_get_child(root_, static_cast<std::int32_t>(index));
+        if (lv_obj_has_class(child, &lv_image_class)) lv_image_set_rotation(child, rotation);
+    }
 }
 
 void ProductUI::show_controls() {
@@ -1516,7 +1554,9 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
     }
 }
 
-void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
+bool ProductUI::image_visible() const { return page_ == Page::image; }
+
+void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
                         const WallpaperStatus& wallpaper, const ButtonEvents& buttons) {
     const std::uint32_t previous_passkey = latest_link_.passkey;
     const bool was_online = latest_wallpaper_.online;
@@ -1595,6 +1635,7 @@ void ProductUI::refresh(const BoardStatus&, const ble_link_status_t& link,
             wallpaper_revision_ = wallpaper.revision;
             show(Page::image, wallpaper);
         }
+        update_image_rotation(board.image_rotation_degrees);
         if (refresh_overlay_) {
             const bool hidden = lv_obj_has_flag(refresh_overlay_, LV_OBJ_FLAG_HIDDEN);
             if (wallpaper.busy && hidden) {
@@ -1672,6 +1713,12 @@ void ProductUI::pairing_row_clicked(lv_event_t* event) {
 void ProductUI::brightness_row_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
     self->show(Page::brightness, self->latest_wallpaper_);
+}
+void ProductUI::auto_rotation_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    auto& board = BoardHal::instance();
+    board.set_auto_rotation_enabled(!board.auto_rotation_enabled());
+    self->show_settings_with_draft();
 }
 void ProductUI::timed_refresh_row_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
