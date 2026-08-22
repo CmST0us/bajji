@@ -56,7 +56,7 @@ extern "C" void app_main() {
     bajji::ProductUI ui;
     bool sample_imu = false;
     if (board.snapshot().display == bajji::Health::ok && board.lvgl_lock()) {
-        ui.create(ble_link_snapshot(), bajji::wallpaper_snapshot());
+        ui.create(ble_link_snapshot(), wifi_link_snapshot(), bajji::wallpaper_snapshot());
         sample_imu = ui.image_visible() && board.auto_rotation_enabled();
         board.lvgl_unlock();
     }
@@ -101,7 +101,7 @@ extern "C" void app_main() {
         // The timer task keeps sampling GPIO while this task waits. Once an edge is queued,
         // wait for the current render to release LVGL instead of missing every short gap.
         if (board.lvgl_lock(input_pending ? 1000 : 0)) {
-            ui.refresh(board.snapshot(), link, wallpaper, pending_buttons);
+            ui.refresh(board.snapshot(), link, wifi, wallpaper, pending_buttons);
             sample_imu = ui.image_visible() && board.auto_rotation_enabled();
             pending_buttons = {};
             last_ui_tick = now;

@@ -526,13 +526,15 @@ lv_draw_buf_t* blur_backdrop_from_gif(const GifSource* source, const char* path)
 
 }  // namespace
 
-void ProductUI::create(const ble_link_status_t& link, const WallpaperStatus& wallpaper) {
+void ProductUI::create(const ble_link_status_t& link, const wifi_link_status_t& wifi,
+                       const WallpaperStatus& wallpaper) {
     auto* screen = lv_screen_active();
     lv_obj_set_style_bg_color(screen, color(kBase), 0);
     lv_obj_set_style_text_color(screen, color(kPrimary), 0);
     lv_obj_remove_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     latest_wallpaper_ = wallpaper;
     latest_link_ = link;
+    latest_wifi_ = wifi;
     draft_ = wallpaper.settings;
     display_mode_ = wallpaper.settings.display_mode;
     wallpaper_revision_ = wallpaper.revision;
@@ -565,9 +567,11 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     category_value_ = nullptr;
     type_value_ = nullptr;
     pairing_value_ = nullptr;
+    wifi_value_ = nullptr;
     brightness_value_ = nullptr;
     auto_refresh_value_ = nullptr;
     custom_interval_value_ = nullptr;
+    wifi_countdown_ = nullptr;
     type_row_ = nullptr;
     controls_visible_ = false;
     controls_hiding_ = false;
@@ -698,11 +702,13 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                         category_row_clicked, this);
             type_row_ = setting_row(list, 52, "类型", &type_value_,
                                     type_row_clicked, this);
-            setting_row(list, 104, "配对设置", &pairing_value_,
+            setting_row(list, 104, "Wi-Fi 配网", &wifi_value_,
+                        wifi_row_clicked, this);
+            setting_row(list, 156, "配对设置", &pairing_value_,
                         pairing_row_clicked, this);
-            setting_row(list, 156, "屏幕亮度", &brightness_value_,
+            setting_row(list, 208, "屏幕亮度", &brightness_value_,
                         brightness_row_clicked, this);
-            auto* rotation_row = object(list, kSafeX, 208, kSafeWidth, 48, kSurface, 16);
+            auto* rotation_row = object(list, kSafeX, 260, kSafeWidth, 48, kSurface, 16);
             lv_obj_set_style_border_width(rotation_row, 1, 0);
             lv_obj_set_style_border_color(rotation_row, color(kOverlay), 0);
             lv_obj_add_flag(rotation_row, LV_OBJ_FLAG_CLICKABLE);
@@ -719,7 +725,7 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             if (BoardHal::instance().auto_rotation_enabled()) {
                 lv_obj_add_state(rotation_switch, LV_STATE_CHECKED);
             }
-            setting_row(list, 260, "定时刷新", &auto_refresh_value_,
+            setting_row(list, 312, "定时刷新", &auto_refresh_value_,
                         timed_refresh_row_clicked, this);
             auto* save = object(root_, 99, 364, 268, 48, kAccent, 24);
             lv_obj_add_flag(save, LV_OBJ_FLAG_CLICKABLE);
@@ -729,6 +735,82 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             label(root_, "A 返回图片 · 无图片时不可用", kSafeX, 424, kSafeWidth,
                   kBodyFont, kSuccess);
             update_settings_labels();
+            break;
+        }
+        case Page::wifi: {
+            back_control(root_, back_clicked, this);
+            settings_title(root_, "Wi-Fi 配网", 40);
+            const wifi_portal_state_t state = latest_wifi_.portal_state;
+            if (state == WIFI_PORTAL_OFF) {
+                auto* status_card = object(root_, kSafeX, 112, kSafeWidth, 92,
+                                           kSurface, 20);
+                const std::uint32_t tint = latest_wifi_.connected
+                    ? kSuccess : (latest_wifi_.configured ? kAccent : kWarning);
+                object(status_card, 20, 25, 10, 10, tint, 5);
+                label(status_card,
+                      latest_wifi_.connected ? "已连接到 Wi-Fi"
+                          : (latest_wifi_.configured ? "已保存网络 · 当前离线"
+                                                     : "尚未配置 Wi-Fi"),
+                      44, 17, 260, kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
+                label(status_card, "手机备用网络不受此设置影响",
+                      44, 50, 260, kBodyFont, kSecondary, LV_TEXT_ALIGN_LEFT);
+                label(root_, "Bajji 将创建一个临时加密热点\n请用 iPhone 连接后完成配网",
+                      83, 226, 300, kBodyFont, kSecondary);
+                auto* start = object(root_, 99, 314, 268, 52, kAccent, 26);
+                lv_obj_add_flag(start, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(start, wifi_start_clicked, LV_EVENT_CLICKED, this);
+                label(start, "启动配网", 0, 15, 268, kBodyFont, kBase);
+                label(root_, latest_wifi_.portal_last_error == ESP_OK
+                                 ? "每次密码随机 · 5 分钟后自动关闭"
+                                 : "上次启动失败，请重试",
+                      kSafeX, 390, kSafeWidth, kBodyFont,
+                      latest_wifi_.portal_last_error == ESP_OK ? kSecondary : kError);
+                break;
+            }
+
+            auto* card = object(root_, kSafeX, 100, kSafeWidth, 236, kSurface, 22);
+            const char* state_text = "正在启动热点…";
+            std::uint32_t state_tint = kAccent;
+            if (state == WIFI_PORTAL_READY) state_text = "热点已开启 · 等待 iPhone";
+            else if (state == WIFI_PORTAL_CONNECTING) state_text = "正在关联并获取 IP…";
+            else if (state == WIFI_PORTAL_FAILED) {
+                state_text = "连接失败 · 请在 iPhone 中重试";
+                state_tint = kError;
+            } else if (state == WIFI_PORTAL_SUCCESS) {
+                state_text = "Wi-Fi 已连接并保存";
+                state_tint = kSuccess;
+            }
+            object(card, 20, 23, 10, 10, state_tint, 5);
+            label(card, state_text, 44, 16, 264, kBodyFont, state_tint,
+                  LV_TEXT_ALIGN_LEFT);
+            label(card, "热点", 20, 55, 70, kBodyFont, kSecondary,
+                  LV_TEXT_ALIGN_LEFT);
+            label(card, latest_wifi_.portal_ssid[0] ? latest_wifi_.portal_ssid : "准备中…",
+                  20, 78, 288, &bajji_font_20, kPrimary, LV_TEXT_ALIGN_LEFT);
+            label(card, "密码", 20, 113, 70, kBodyFont, kSecondary,
+                  LV_TEXT_ALIGN_LEFT);
+            label(card, latest_wifi_.portal_password[0]
+                            ? latest_wifi_.portal_password : "生成中…",
+                  20, 136, 288, &lv_font_montserrat_20, kAccent,
+                  LV_TEXT_ALIGN_LEFT);
+            label(card, "连接热点后打开", 20, 174, 150, kBodyFont, kSecondary,
+                  LV_TEXT_ALIGN_LEFT);
+            label(card, "bajji.setup", 176, 174, 132, kBodyFont, kAccent,
+                  LV_TEXT_ALIGN_RIGHT);
+            wifi_countdown_ = label(card, "剩余 -- 秒", 20, 204, 288,
+                                    kBodyFont, kSecondary, LV_TEXT_ALIGN_LEFT);
+            lv_label_set_text_fmt(wifi_countdown_, "剩余 %u 秒",
+                                  latest_wifi_.portal_seconds_remaining);
+
+            auto* stop = object(root_, 99, 356, 268, 52, kOverlay, 26);
+            lv_obj_set_style_border_width(stop, 1, 0);
+            lv_obj_set_style_border_color(stop, color(kError), 0);
+            lv_obj_add_flag(stop, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(stop, wifi_stop_clicked, LV_EVENT_CLICKED, this);
+            label(stop, state == WIFI_PORTAL_SUCCESS ? "立即关闭热点" : "停止配网",
+                  0, 15, 268, kBodyFont, kError);
+            label(root_, "A 返回设置 · 配网会继续运行", kSafeX, 420, kSafeWidth,
+                  kBodyFont, kSecondary);
             break;
         }
         case Page::pairing_settings: {
@@ -1419,6 +1501,13 @@ void ProductUI::hide_hold() {
 }
 
 void ProductUI::update_settings_labels() {
+    if (wifi_value_) {
+        const char* value = latest_wifi_.connected ? "已连接"
+            : (latest_wifi_.portal_state == WIFI_PORTAL_FAILED ? "等待重试"
+                : (latest_wifi_.portal_state != WIFI_PORTAL_OFF ? "配网中"
+                    : (latest_wifi_.configured ? "已配置" : "未配置")));
+        lv_label_set_text(wifi_value_, value);
+    }
     if (pairing_value_) {
         lv_label_set_text(pairing_value_, latest_link_.has_bond ? "已配对" : "未配对");
     }
@@ -1566,12 +1655,29 @@ void ProductUI::refresh_image(const WallpaperStatus& wallpaper) {
 bool ProductUI::image_visible() const { return page_ == Page::image; }
 
 void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
-                        const WallpaperStatus& wallpaper, const ButtonEvents& buttons) {
+                        const wifi_link_status_t& wifi, const WallpaperStatus& wallpaper,
+                        const ButtonEvents& buttons) {
     const std::uint32_t previous_passkey = latest_link_.passkey;
     const bool was_online = latest_wallpaper_.online;
+    const wifi_portal_state_t previous_portal_state = latest_wifi_.portal_state;
+    const bool wifi_summary_changed = latest_wifi_.connected != wifi.connected ||
+        latest_wifi_.configured != wifi.configured ||
+        previous_portal_state != wifi.portal_state;
+    const std::uint16_t previous_portal_seconds = latest_wifi_.portal_seconds_remaining;
     latest_wallpaper_ = wallpaper;
     latest_link_ = link;
+    latest_wifi_ = wifi;
     const std::uint32_t now = now_ms();
+
+    if (page_ == Page::wifi && previous_portal_state != wifi.portal_state) {
+        show(Page::wifi, wallpaper);
+    } else if (page_ == Page::wifi && wifi_countdown_ &&
+               previous_portal_seconds != wifi.portal_seconds_remaining) {
+        lv_label_set_text_fmt(wifi_countdown_, "剩余 %u 秒",
+                              wifi.portal_seconds_remaining);
+    } else if (page_ == Page::settings && wifi_summary_changed) {
+        update_settings_labels();
+    }
 
     if (link.passkey && page_ != Page::pairing_code) {
         show(Page::pairing_code, wallpaper, link.passkey);
@@ -1613,7 +1719,8 @@ void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
             return;
         }
         if (page_ == Page::category || page_ == Page::type ||
-            page_ == Page::pairing_settings || page_ == Page::brightness ||
+            page_ == Page::pairing_settings || page_ == Page::wifi ||
+            page_ == Page::brightness ||
             page_ == Page::timed_refresh) {
             show_settings_with_draft();
             return;
@@ -1725,6 +1832,10 @@ void ProductUI::pairing_row_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
     self->show(Page::pairing_settings, self->latest_wallpaper_);
 }
+void ProductUI::wifi_row_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    self->show(Page::wifi, self->latest_wallpaper_);
+}
 void ProductUI::brightness_row_clicked(lv_event_t* event) {
     auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
     self->show(Page::brightness, self->latest_wallpaper_);
@@ -1804,5 +1915,17 @@ void ProductUI::interval_increase_clicked(lv_event_t* event) {
 }
 void ProductUI::interval_save_clicked(lv_event_t* event) {
     static_cast<ProductUI*>(lv_event_get_user_data(event))->save_custom_interval();
+}
+void ProductUI::wifi_start_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    if (wifi_link_start_portal() != ESP_OK) return;
+    self->latest_wifi_.portal_state = WIFI_PORTAL_STARTING;
+    self->latest_wifi_.portal_last_error = ESP_OK;
+    self->show(Page::wifi, self->latest_wallpaper_);
+}
+void ProductUI::wifi_stop_clicked(lv_event_t* event) {
+    auto* self = static_cast<ProductUI*>(lv_event_get_user_data(event));
+    if (wifi_link_stop_portal() != ESP_OK) return;
+    self->show_settings_with_draft();
 }
 }  // namespace bajji

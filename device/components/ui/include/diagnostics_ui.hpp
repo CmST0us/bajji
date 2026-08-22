@@ -6,6 +6,7 @@
 #include "ble_link.h"
 #include "board_hal.hpp"
 #include "wallpaper_service.hpp"
+#include "wifi_link.h"
 
 struct _lv_obj_t;
 struct _lv_event_t;
@@ -14,9 +15,11 @@ namespace bajji {
 
 class ProductUI {
 public:
-    void create(const ble_link_status_t& link, const WallpaperStatus& wallpaper);
+    void create(const ble_link_status_t& link, const wifi_link_status_t& wifi,
+                const WallpaperStatus& wallpaper);
     void refresh(const BoardStatus& board, const ble_link_status_t& link,
-                 const WallpaperStatus& wallpaper, const ButtonEvents& buttons);
+                 const wifi_link_status_t& wifi, const WallpaperStatus& wallpaper,
+                 const ButtonEvents& buttons);
     bool image_visible() const;
 
 private:
@@ -27,6 +30,7 @@ private:
         pairing_recovery,
         pairing_success,
         settings,
+        wifi,
         category,
         type,
         pairing_settings,
@@ -65,6 +69,7 @@ private:
     static void category_row_clicked(_lv_event_t* event);
     static void type_row_clicked(_lv_event_t* event);
     static void pairing_row_clicked(_lv_event_t* event);
+    static void wifi_row_clicked(_lv_event_t* event);
     static void brightness_row_clicked(_lv_event_t* event);
     static void auto_rotation_clicked(_lv_event_t* event);
     static void timed_refresh_row_clicked(_lv_event_t* event);
@@ -84,6 +89,8 @@ private:
     static void interval_decrease_clicked(_lv_event_t* event);
     static void interval_increase_clicked(_lv_event_t* event);
     static void interval_save_clicked(_lv_event_t* event);
+    static void wifi_start_clicked(_lv_event_t* event);
+    static void wifi_stop_clicked(_lv_event_t* event);
 
     Page page_{Page::startup};
     _lv_obj_t* root_{};
@@ -100,9 +107,11 @@ private:
     _lv_obj_t* category_value_{};
     _lv_obj_t* type_value_{};
     _lv_obj_t* pairing_value_{};
+    _lv_obj_t* wifi_value_{};
     _lv_obj_t* brightness_value_{};
     _lv_obj_t* auto_refresh_value_{};
     _lv_obj_t* custom_interval_value_{};
+    _lv_obj_t* wifi_countdown_{};
     _lv_obj_t* type_row_{};
     void* webp_player_{};
     void* still_image_{};  // lv_draw_buf_t* holding the pre-decoded still wallpaper
@@ -110,6 +119,7 @@ private:
     void* blurred_background_{};  // lv_draw_buf_t* holding the pre-blurred backdrop
     WallpaperSettings draft_{};
     ble_link_status_t latest_link_{};
+    wifi_link_status_t latest_wifi_{};
     DisplayMode display_mode_{DisplayMode::cover};
     WallpaperStatus latest_wallpaper_{};
     std::uint32_t page_since_ms_{};
