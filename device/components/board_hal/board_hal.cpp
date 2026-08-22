@@ -76,6 +76,7 @@ i2c_master_dev_handle_t touch_device = nullptr;
 i2c_master_dev_handle_t rtc_device = nullptr;
 bmi270_bmm150_handle_t imu = nullptr;
 SemaphoreHandle_t lvgl_mutex = nullptr;
+SemaphoreHandle_t brightness_mutex = nullptr;
 esp_codec_dev_handle_t codec = nullptr;
 ButtonState buttons;
 portMUX_TYPE button_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -235,7 +236,7 @@ void load_board_settings(BoardStatus& status) {
     nvs_close(handle);
 }
 
-void persist_board_setting(const char* key, std::uint8_t value) {
+esp_err_t persist_board_setting(const char* key, std::uint8_t value) {
     nvs_handle_t handle = 0;
     esp_err_t result = nvs_open(kBoardNvsNamespace, NVS_READWRITE, &handle);
     if (result == ESP_OK) result = nvs_set_u8(handle, key, value);
@@ -244,6 +245,7 @@ void persist_board_setting(const char* key, std::uint8_t value) {
     if (result != ESP_OK) {
         ESP_LOGW(kTag, "%s persistence failed: %s", key, esp_err_to_name(result));
     }
+    return result;
 }
 
 // Pulse the OLED (IO5) and touch (IO4) reset lines together, as M5GFX.cpp:1916-1920 does.
@@ -581,6 +583,8 @@ esp_err_t BoardHal::init() {
         if (nvs_result == ESP_OK) nvs_result = nvs_flash_init();
     }
     if (nvs_result != ESP_OK || !init_i2c()) return nvs_result == ESP_OK ? ESP_FAIL : nvs_result;
+    brightness_mutex = xSemaphoreCreateMutex();
+    if (!brightness_mutex) return ESP_ERR_NO_MEM;
     load_board_settings(status_);
 
     status_.pmic = init_pmic() ? Health::ok : Health::error;
@@ -604,7 +608,13 @@ esp_err_t BoardHal::init() {
     return status_.display == Health::ok ? ESP_OK : ESP_FAIL;
 }
 
-BoardStatus BoardHal::snapshot() { return status_; }
+BoardStatus BoardHal::snapshot() {
+    if (!brightness_mutex) return status_;
+    xSemaphoreTake(brightness_mutex, portMAX_DELAY);
+    const BoardStatus snapshot = status_;
+    xSemaphoreGive(brightness_mutex);
+    return snapshot;
+}
 
 void BoardHal::poll(bool sample_imu) {
     const auto now = esp_timer_get_time();
@@ -662,15 +672,35 @@ void BoardHal::poll(bool sample_imu) {
     status_.image_rotation_degrees = image_rotation.degrees;
 }
 
-void BoardHal::set_brightness(std::uint8_t percent) {
+esp_err_t BoardHal::set_brightness(std::uint8_t percent) {
+    if (!brightness_mutex || xSemaphoreTake(brightness_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
     percent = std::min<std::uint8_t>(percent, 100);
-    if (status_.brightness == percent) return;
+    if (status_.brightness == percent) {
+        xSemaphoreGive(brightness_mutex);
+        return ESP_OK;
+    }
+    const std::uint8_t previous = status_.brightness;
     status_.brightness = percent;
     if (display) display->set_brightness(status_.brightness);
-    persist_board_setting(kBrightnessKey, status_.brightness);
+    const esp_err_t result = persist_board_setting(kBrightnessKey, status_.brightness);
+    if (result != ESP_OK) {
+        status_.brightness = previous;
+        if (display) display->set_brightness(status_.brightness);
+    }
+    xSemaphoreGive(brightness_mutex);
+    return result;
 }
 
-std::uint8_t BoardHal::brightness() const { return status_.brightness; }
+std::uint8_t BoardHal::brightness() const {
+    if (!brightness_mutex || xSemaphoreTake(brightness_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return status_.brightness;
+    }
+    const std::uint8_t value = status_.brightness;
+    xSemaphoreGive(brightness_mutex);
+    return value;
+}
 
 void BoardHal::set_auto_rotation_enabled(bool enabled) {
     if (status_.auto_rotation_enabled == enabled) return;

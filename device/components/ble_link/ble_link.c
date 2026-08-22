@@ -156,7 +156,7 @@ static int bridge_info_read(uint16_t conn, uint16_t attribute,
     if (ble_gap_conn_find(conn, &desc) != 0 || !desc.sec_state.encrypted || !peer_allowed(conn)) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-    uint8_t info[22] = {1, 0x07, (uint8_t)(BAJJI_BRIDGE_PSM >> 8U), (uint8_t)BAJJI_BRIDGE_PSM,
+    uint8_t info[22] = {1, 0x1f, (uint8_t)(BAJJI_BRIDGE_PSM >> 8U), (uint8_t)BAJJI_BRIDGE_PSM,
                         (uint8_t)(BRIDGE_MAX_PAYLOAD >> 8U), (uint8_t)BRIDGE_MAX_PAYLOAD};
     memcpy(info + 6, device_id, sizeof(device_id));
     return os_mbuf_append(context->om, info, sizeof(info)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -476,8 +476,14 @@ static void respond(const bridge_frame_t* received) {
         callback = frame_handler;
         context = handler_context;
         portEXIT_CRITICAL(&status_lock);
-        if (ready && callback && (received->type == BRIDGE_TYPE_IPV4 ||
-                                  received->type == BRIDGE_TYPE_TIME_SYNC)) {
+        if (ready && callback &&
+            (received->type == BRIDGE_TYPE_IPV4 || received->type == BRIDGE_TYPE_TIME_SYNC ||
+             received->type == BRIDGE_TYPE_SETTINGS_GET ||
+             received->type == BRIDGE_TYPE_SETTINGS_SET ||
+             received->type == BRIDGE_TYPE_WALLPAPER_BEGIN ||
+             received->type == BRIDGE_TYPE_WALLPAPER_CHUNK ||
+             received->type == BRIDGE_TYPE_WALLPAPER_COMMIT ||
+             received->type == BRIDGE_TYPE_WALLPAPER_CANCEL)) {
             callback(received, context);
         }
         return;

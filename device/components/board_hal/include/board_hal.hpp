@@ -45,7 +45,7 @@ public:
     BoardStatus snapshot();
     void poll(bool sample_imu);
 
-    void set_brightness(std::uint8_t percent);
+    esp_err_t set_brightness(std::uint8_t percent);
     std::uint8_t brightness() const;
     void set_auto_rotation_enabled(bool enabled);
     bool auto_rotation_enabled() const;

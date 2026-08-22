@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "board_hal.hpp"
 #include "ble_link.h"
+#include "device_control.hpp"
 #include "diagnostics_ui.hpp"
 #include "ip_bridge.h"
 #include "wallpaper_service.hpp"
@@ -25,19 +26,32 @@ extern "C" void app_main() {
     if (ip_result != ESP_OK) ESP_LOGE("main", "IP bridge init failed: %s", esp_err_to_name(ip_result));
     const esp_err_t wifi_result = wifi_link_start();
     if (wifi_result != ESP_OK) ESP_LOGE("main", "Wi-Fi init failed: %s", esp_err_to_name(wifi_result));
+    const esp_err_t wallpaper_result = bajji::wallpaper_start();
+    if (wallpaper_result != ESP_OK) {
+        ESP_LOGE("main", "wallpaper service incomplete: %s", esp_err_to_name(wallpaper_result));
+    }
+    const esp_err_t control_result = bajji::device_control_start();
+    if (control_result != ESP_OK) {
+        ESP_LOGE("main", "device control init failed: %s", esp_err_to_name(control_result));
+    }
     ble_link_set_handlers(
-        [](const bridge_frame_t* frame, void*) { ip_bridge_receive(frame); },
-        [](bool ready, void*) { ip_bridge_set_link(ready); }, NULL);
+        [](const bridge_frame_t* frame, void*) {
+            if (frame->type == BRIDGE_TYPE_IPV4 || frame->type == BRIDGE_TYPE_TIME_SYNC) {
+                ip_bridge_receive(frame);
+            } else {
+                bajji::device_control_receive(frame);
+            }
+        },
+        [](bool ready, void*) {
+            ip_bridge_set_link(ready);
+            bajji::device_control_set_ready(ready);
+        }, NULL);
     ble_link_set_provision_handler(
         [](const uint8_t* payload, size_t length, void*) {
             return wifi_link_provision(payload, length);
         }, NULL);
     const esp_err_t ble_result = ble_link_start();
     if (ble_result != ESP_OK) ESP_LOGE("main", "BLE init failed: %s", esp_err_to_name(ble_result));
-    const esp_err_t wallpaper_result = bajji::wallpaper_start();
-    if (wallpaper_result != ESP_OK) {
-        ESP_LOGE("main", "wallpaper service incomplete: %s", esp_err_to_name(wallpaper_result));
-    }
 
     bajji::ProductUI ui;
     bool sample_imu = false;

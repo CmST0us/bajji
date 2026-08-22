@@ -4,11 +4,13 @@
 
 #include <atomic>
 #include <cerrno>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <strings.h>
 
+#include "bridge_protocol.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
@@ -31,7 +33,7 @@ constexpr char kMountPoint[] = "/spiffs";
 constexpr char kImageTemp[] = "/spiffs/wallpaper.tmp";
 constexpr char kImageBackup[] = "/spiffs/wallpaper.bak";
 constexpr char kNvsNamespace[] = "bajji_ui";
-constexpr size_t kImageLimit = 3U * 1024U * 1024U;
+constexpr size_t kImageLimit = kWallpaperTransferMaximumBytes;
 // Peak PSRAM the UI needs to turn the file into something drawable.
 // JPEG is descaled inside the IDCT, so its peak is the descaled buffer rather than the source
 // resolution; keep this in step with kJpegDecodeBudget in diagnostics_ui.cpp.
@@ -53,7 +55,14 @@ constexpr wallpaper_media_format_t kFormats[] = {
 
 const char* tag = "wallpaper";
 
-enum class Command : std::uint8_t { wake, refresh, save_settings, save_mode, save_auto_refresh };
+enum class Command : std::uint8_t {
+    wake,
+    refresh,
+    save_settings,
+    save_mode,
+    save_auto_refresh,
+    parameters_changed,
+};
 
 struct QueuedCommand {
     Command type{Command::wake};
@@ -71,13 +80,26 @@ struct HeaderState {
     char location[512]{};
 };
 
+struct IncomingTransfer {
+    FILE* file{};
+    wallpaper_media_format_t format{WALLPAPER_MEDIA_UNKNOWN};
+    std::uint32_t expected_size{};
+    std::uint32_t expected_crc{};
+    std::uint32_t crc_state{BRIDGE_CRC32_INITIAL};
+    std::uint32_t written{};
+};
+
 WallpaperStatus status;
 SemaphoreHandle_t status_mutex;
 SemaphoreHandle_t client_mutex;
+SemaphoreHandle_t settings_mutex;
+SemaphoreHandle_t storage_mutex;
 QueueHandle_t command_queue;
 esp_http_client_handle_t active_client;
 wl_handle_t wl_partition = WL_INVALID_HANDLE;
 std::atomic_bool cancel_requested{};
+std::atomic_bool remote_transfer_active{};
+IncomingTransfer incoming_transfer;
 bool started;
 
 const char* image_path(wallpaper_media_format_t format) {
@@ -128,7 +150,7 @@ void default_settings(WallpaperSettings* settings) {
 esp_err_t load_settings() {
     WallpaperSettings loaded;
     default_settings(&loaded);
-    nvs_handle_t handle;
+    nvs_handle_t handle = 0;
     esp_err_t result = nvs_open(kNvsNamespace, NVS_READONLY, &handle);
     if (result == ESP_ERR_NVS_NOT_FOUND) {
         update_status([&](WallpaperStatus& value) { value.settings = loaded; });
@@ -164,10 +186,13 @@ esp_err_t load_settings() {
 }
 
 esp_err_t persist_settings(const WallpaperSettings& settings) {
-    nvs_handle_t handle;
+    if (!settings_mutex || xSemaphoreTake(settings_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    nvs_handle_t handle = 0;
     esp_err_t result = nvs_open(kNvsNamespace, NVS_READWRITE, &handle);
-    if (result != ESP_OK) return result;
-    if ((result = nvs_set_u8(handle, "configured", settings.configured ? 1 : 0)) == ESP_OK &&
+    if (result == ESP_OK &&
+        (result = nvs_set_u8(handle, "configured", settings.configured ? 1 : 0)) == ESP_OK &&
         (result = nvs_set_str(handle, "category", settings.category)) == ESP_OK &&
         (result = nvs_set_str(handle, "type", settings.type)) == ESP_OK &&
         (result = nvs_set_u8(handle, "display_mode",
@@ -176,7 +201,8 @@ esp_err_t persist_settings(const WallpaperSettings& settings) {
                               settings.auto_refresh_minutes)) == ESP_OK) {
         result = nvs_commit(handle);
     }
-    nvs_close(handle);
+    if (handle) nvs_close(handle);
+    xSemaphoreGive(settings_mutex);
     return result;
 }
 
@@ -466,6 +492,9 @@ bool retryable(esp_err_t result) {
 
 esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info_t* info) {
     if (!wallpaper_settings_valid(settings.category, settings.type)) return ESP_ERR_INVALID_ARG;
+    if (!storage_mutex || xSemaphoreTake(storage_mutex, 0) != pdTRUE) {
+        return ESP_ERR_INVALID_STATE;
+    }
     update_status([](WallpaperStatus& value) {
         copy_text(value.state, sizeof(value.state), value.has_cache ? "正在换一张…" : "正在获取图片");
     });
@@ -481,13 +510,15 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
         char origin[128];
         if (wallpaper_build_random_url(settings.category, settings.type, esp_random(), origin,
                                        sizeof(origin)) != 0) {
-            return ESP_ERR_INVALID_ARG;
+            result = ESP_ERR_INVALID_ARG;
+            break;
         }
         char url[512];
         if (wallpaper_build_proxy_url(origin,
                                       settings.display_mode == DisplayMode::fit_blur,
                                       url, sizeof(url)) != 0) {
-            return ESP_ERR_INVALID_ARG;
+            result = ESP_ERR_INVALID_ARG;
+            break;
         }
         result = download_image(url, info);
         if (cancel_requested.load()) { result = ESP_ERR_INVALID_STATE; break; }
@@ -508,6 +539,7 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
         }
         if (result == ESP_OK) remove_other_images(target);
     }
+    xSemaphoreGive(storage_mutex);
     return result;
 }
 
@@ -608,12 +640,21 @@ void worker(void*) {
                     static_cast<std::uint64_t>(esp_timer_get_time() / 1000),
                     command.settings.auto_refresh_minutes);
             }
+        } else if (received && command.type == Command::parameters_changed) {
+            const WallpaperStatus current = wallpaper_snapshot();
+            next_auto_refresh_ms = auto_refresh_deadline_ms(
+                static_cast<std::uint64_t>(esp_timer_get_time() / 1000),
+                current.settings.auto_refresh_minutes);
         } else if (received && command.type == Command::refresh) {
             pending_refresh = true;
             next_auto_refresh_ms = 0;
         }
 
         if (!pending_refresh) continue;
+        if (remote_transfer_active.load()) {
+            pending_refresh = false;
+            continue;
+        }
         const WallpaperStatus current = wallpaper_snapshot();
         if (!current.settings.configured) {
             pending_refresh = false;
@@ -651,8 +692,12 @@ esp_err_t wallpaper_start() {
     if (started) return ESP_OK;
     status_mutex = xSemaphoreCreateMutex();
     client_mutex = xSemaphoreCreateMutex();
+    settings_mutex = xSemaphoreCreateMutex();
+    storage_mutex = xSemaphoreCreateMutex();
     command_queue = xQueueCreate(6, sizeof(QueuedCommand));
-    if (!status_mutex || !client_mutex || !command_queue) return ESP_ERR_NO_MEM;
+    if (!status_mutex || !client_mutex || !settings_mutex || !storage_mutex || !command_queue) {
+        return ESP_ERR_NO_MEM;
+    }
     default_settings(&status.settings);
     copy_text(status.state, sizeof(status.state), "正在启动…");
     const esp_err_t settings_result = load_settings();
@@ -722,6 +767,141 @@ esp_err_t wallpaper_set_auto_refresh(std::uint16_t minutes) {
     QueuedCommand command{.type = Command::save_auto_refresh};
     command.settings.auto_refresh_minutes = minutes;
     return enqueue(command);
+}
+
+esp_err_t wallpaper_apply_parameters(DisplayMode mode, std::uint16_t auto_refresh_minutes) {
+    if (!started) return ESP_ERR_INVALID_STATE;
+    if ((mode != DisplayMode::cover && mode != DisplayMode::fit_blur) ||
+        auto_refresh_minutes > kMaxAutoRefreshMinutes) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    WallpaperStatus current = wallpaper_snapshot();
+    current.settings.display_mode = mode;
+    current.settings.auto_refresh_minutes = auto_refresh_minutes;
+    const esp_err_t result = persist_settings(current.settings);
+    update_status([&](WallpaperStatus& value) {
+        value.last_error = result;
+        if (result == ESP_OK) {
+            value.settings = current.settings;
+            copy_text(value.state, sizeof(value.state), "参数已同步");
+        }
+    });
+    if (result == ESP_OK) enqueue({.type = Command::parameters_changed});
+    return result;
+}
+
+esp_err_t wallpaper_transfer_begin(wallpaper_media_format_t format, std::uint32_t size,
+                                   std::uint32_t crc32) {
+    if (!started || !wallpaper_snapshot().mounted) return ESP_ERR_INVALID_STATE;
+    if (format < WALLPAPER_MEDIA_JPEG || format > WALLPAPER_MEDIA_WEBP || size == 0 ||
+        size > kWallpaperTransferMaximumBytes) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (remote_transfer_active.load() ||
+        !storage_mutex || xSemaphoreTake(storage_mutex, 0) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    std::remove(kImageTemp);
+    FILE* file = std::fopen(kImageTemp, "wb");
+    if (!file) {
+        xSemaphoreGive(storage_mutex);
+        return ESP_FAIL;
+    }
+    incoming_transfer = {
+        .file = file,
+        .format = format,
+        .expected_size = size,
+        .expected_crc = crc32,
+        .crc_state = BRIDGE_CRC32_INITIAL,
+    };
+    remote_transfer_active.store(true);
+    update_status([](WallpaperStatus& value) {
+        value.busy = true;
+        value.last_error = ESP_OK;
+        copy_text(value.state, sizeof(value.state), "正在接收手机图片");
+    });
+    return ESP_OK;
+}
+
+esp_err_t wallpaper_transfer_write(std::uint32_t offset, const std::uint8_t* bytes,
+                                   std::size_t length) {
+    if (!remote_transfer_active.load() || !incoming_transfer.file) return ESP_ERR_INVALID_STATE;
+    if (!bytes || length == 0 || offset != incoming_transfer.written ||
+        incoming_transfer.written > incoming_transfer.expected_size ||
+        length > incoming_transfer.expected_size - incoming_transfer.written) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (std::fwrite(bytes, 1, length, incoming_transfer.file) != length) return ESP_FAIL;
+    incoming_transfer.crc_state =
+        bridge_crc32_update(incoming_transfer.crc_state, bytes, length);
+    incoming_transfer.written += static_cast<std::uint32_t>(length);
+    return ESP_OK;
+}
+
+std::uint32_t wallpaper_transfer_received_bytes() { return incoming_transfer.written; }
+
+esp_err_t wallpaper_transfer_commit() {
+    if (!remote_transfer_active.load() || !incoming_transfer.file) return ESP_ERR_INVALID_STATE;
+    esp_err_t result = std::fclose(incoming_transfer.file) == 0 ? ESP_OK : ESP_FAIL;
+    incoming_transfer.file = nullptr;
+    if (result == ESP_OK && incoming_transfer.written != incoming_transfer.expected_size) {
+        result = ESP_ERR_INVALID_SIZE;
+    }
+    if (result == ESP_OK &&
+        bridge_crc32_finish(incoming_transfer.crc_state) != incoming_transfer.expected_crc) {
+        result = ESP_ERR_INVALID_CRC;
+    }
+    wallpaper_media_info_t info{};
+    if (result == ESP_OK) result = validate_image_file(kImageTemp, &info);
+    if (result == ESP_OK && info.format != incoming_transfer.format) {
+        result = ESP_ERR_NOT_SUPPORTED;
+    }
+    const char* target = result == ESP_OK ? image_path(info.format) : nullptr;
+    if (result == ESP_OK && !target) result = ESP_ERR_NOT_SUPPORTED;
+    if (result == ESP_OK) result = replace_file(kImageTemp, target, kImageBackup);
+    if (result == ESP_OK) remove_other_images(target);
+    else std::remove(kImageTemp);
+
+    const std::uint32_t bytes = incoming_transfer.written;
+    incoming_transfer = {};
+    remote_transfer_active.store(false);
+    xSemaphoreGive(storage_mutex);
+    update_status([&](WallpaperStatus& value) {
+        value.busy = false;
+        value.last_error = result;
+        if (result == ESP_OK) {
+            value.has_cache = true;
+            value.media = info;
+            copy_text(value.lvgl_path, sizeof(value.lvgl_path), lvgl_path(info.format));
+            value.revision++;
+            copy_text(value.state, sizeof(value.state), "手机图片已应用");
+        } else {
+            copy_text(value.state, sizeof(value.state),
+                      value.has_cache ? "传输失败 · 显示原图" : "手机图片传输失败");
+        }
+    });
+    if (result == ESP_OK) {
+        ESP_LOGI(tag, "installed phone wallpaper: bytes=%" PRIu32 " format=%d %ux%u",
+                 bytes, static_cast<int>(info.format), info.width, info.height);
+        enqueue({.type = Command::parameters_changed});
+    }
+    return result;
+}
+
+esp_err_t wallpaper_transfer_cancel() {
+    if (!remote_transfer_active.load()) return ESP_OK;
+    if (incoming_transfer.file) std::fclose(incoming_transfer.file);
+    std::remove(kImageTemp);
+    incoming_transfer = {};
+    remote_transfer_active.store(false);
+    xSemaphoreGive(storage_mutex);
+    update_status([](WallpaperStatus& value) {
+        value.busy = false;
+        value.last_error = ESP_OK;
+        copy_text(value.state, sizeof(value.state),
+                  value.has_cache ? "传输已取消 · 显示原图" : "手机图片传输已取消");
+    });
+    return ESP_OK;
 }
 
 WallpaperStatus wallpaper_snapshot() {
