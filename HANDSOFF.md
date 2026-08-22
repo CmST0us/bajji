@@ -8,6 +8,12 @@
 
 ---
 
+## 2026-08-22 · Bajji iOS 高保真 App 已按 Figma 实现
+
+提交 `b05abcb`、`29228c8`、`5adb391`、`ed6c392`、`d7c2577` 已实现三栏原生 SwiftUI App、AccessorySetupKit 添加流程、Wi‑Fi Infrastructure 授权状态、Packet Tunnel 安装/启停、系统照片选择与 468×468 圆形预览、参数持久化、诊断和安全解绑。iPhoneOS Debug 完整构建、Swift 11/11 测试通过；iPhone 17 Pro 模拟器已验收设备/图片/设置流程、系统 Photo Picker、明暗模式与辅助阅读字号，运行日志无 App 错误。
+
+当前 Bridge v1 没有手机传图或设备参数消息，因此 App 会保存派生壁纸和参数，并明确显示“待发送/协议尚未支持”，不会伪造设备成功回执。宿主用 `canImport(WiFiInfrastructure)` 提供模拟器降级，但完整 simulator scheme 仍会因真机专用的 Wi‑Fi Sharing Extension 无法导入该框架而失败；视觉验收时只临时移除了 extension dependency，已原样恢复且工作树未留下工程文件改动。
+
 ## 2026-08-22 · 图片设置保存已支持 Wi-Fi 上行，待真机复测
 
 设备 UI 原先在保存图片参数、启动、配对完成、加载中断和失败重试时只检查 `ble_link_status_t::bridge_ready`，导致 Wi-Fi 已在线但手机桥接未连接时误入“手机网络不可用”。现统一以 `bridge_ready || WallpaperStatus::online` 判断下载上行，并将相关错误文案改成通用网络提示；host tests 与 ESP-IDF 6.0 完整构建通过，尚需真机验证“保存图片参数并加载”的 Wi-Fi-only 路径。
