@@ -754,24 +754,23 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                       44, 17, 260, kBodyFont, kPrimary, LV_TEXT_ALIGN_LEFT);
                 label(status_card, "手机备用网络不受此设置影响",
                       44, 50, 260, kBodyFont, kSecondary, LV_TEXT_ALIGN_LEFT);
-                label(root_, "Bajji 将创建一个临时加密热点\n请用 iPhone 连接后完成配网",
+                label(root_, "Bajji 将创建一个临时开放热点\n请用 iPhone 扫码加入后完成配网",
                       83, 226, 300, kBodyFont, kSecondary);
                 auto* start = object(root_, 99, 314, 268, 52, kAccent, 26);
                 lv_obj_add_flag(start, LV_OBJ_FLAG_CLICKABLE);
                 lv_obj_add_event_cb(start, wifi_start_clicked, LV_EVENT_CLICKED, this);
                 label(start, "启动配网", 0, 15, 268, kBodyFont, kBase);
                 label(root_, latest_wifi_.portal_last_error == ESP_OK
-                                 ? "每次密码随机 · 5 分钟后自动关闭"
+                                 ? "无需密码 · 5 分钟后自动关闭"
                                  : "上次启动失败，请重试",
                       kSafeX, 390, kSafeWidth, kBodyFont,
                       latest_wifi_.portal_last_error == ESP_OK ? kSecondary : kError);
                 break;
             }
 
-            auto* card = object(root_, kSafeX, 100, kSafeWidth, 236, kSurface, 22);
             const char* state_text = "正在启动热点…";
             std::uint32_t state_tint = kAccent;
-            if (state == WIFI_PORTAL_READY) state_text = "热点已开启 · 等待 iPhone";
+            if (state == WIFI_PORTAL_READY) state_text = "开放热点已开启 · 等待 iPhone";
             else if (state == WIFI_PORTAL_CONNECTING) state_text = "正在关联并获取 IP…";
             else if (state == WIFI_PORTAL_FAILED) {
                 state_text = "连接失败 · 请在 iPhone 中重试";
@@ -780,36 +779,40 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
                 state_text = "Wi-Fi 已连接并保存";
                 state_tint = kSuccess;
             }
-            object(card, 20, 23, 10, 10, state_tint, 5);
-            label(card, state_text, 44, 16, 264, kBodyFont, state_tint,
+            object(root_, 89, 84, 10, 10, state_tint, 5);
+            label(root_, state_text, 109, 77, 268, kBodyFont, state_tint,
                   LV_TEXT_ALIGN_LEFT);
-            label(card, "热点", 20, 55, 70, kBodyFont, kSecondary,
-                  LV_TEXT_ALIGN_LEFT);
-            label(card, latest_wifi_.portal_ssid[0] ? latest_wifi_.portal_ssid : "准备中…",
-                  20, 78, 288, &bajji_font_20, kPrimary, LV_TEXT_ALIGN_LEFT);
-            label(card, "密码", 20, 113, 70, kBodyFont, kSecondary,
-                  LV_TEXT_ALIGN_LEFT);
-            label(card, latest_wifi_.portal_password[0]
-                            ? latest_wifi_.portal_password : "生成中…",
-                  20, 136, 288, &lv_font_montserrat_20, kAccent,
-                  LV_TEXT_ALIGN_LEFT);
-            label(card, "连接热点后打开", 20, 174, 150, kBodyFont, kSecondary,
-                  LV_TEXT_ALIGN_LEFT);
-            label(card, "bajji.setup", 176, 174, 132, kBodyFont, kAccent,
-                  LV_TEXT_ALIGN_RIGHT);
-            wifi_countdown_ = label(card, "剩余 -- 秒", 20, 204, 288,
-                                    kBodyFont, kSecondary, LV_TEXT_ALIGN_LEFT);
+
+            char qr_data[64];
+            std::snprintf(qr_data, sizeof(qr_data), "WIFI:T:nopass;S:%s;;",
+                          latest_wifi_.portal_ssid);
+            auto* qr = lv_qrcode_create(root_);
+            lv_qrcode_set_size(qr, 164);
+            lv_qrcode_set_dark_color(qr, color(kBase));
+            lv_qrcode_set_light_color(qr, color(0xffffff));
+            lv_qrcode_set_quiet_zone(qr, true);
+            lv_qrcode_set_data(qr, qr_data);
+            lv_obj_set_pos(qr, 151, 103);
+
+            label(root_, latest_wifi_.portal_ssid[0] ? latest_wifi_.portal_ssid : "准备中…",
+                  kSafeX, 276, kSafeWidth, &bajji_font_20, kPrimary);
+            label(root_, "扫码加入开放热点", kSafeX, 305, kSafeWidth,
+                  kBodyFont, kSecondary);
+            label(root_, "连接后打开 bajji.setup", kSafeX, 329, kSafeWidth,
+                  kBodyFont, kAccent);
+            wifi_countdown_ = label(root_, "剩余 -- 秒", kSafeX, 353, kSafeWidth,
+                                    kBodyFont, kSecondary);
             lv_label_set_text_fmt(wifi_countdown_, "剩余 %u 秒",
                                   latest_wifi_.portal_seconds_remaining);
 
-            auto* stop = object(root_, 99, 356, 268, 52, kOverlay, 26);
+            auto* stop = object(root_, 99, 381, 268, 52, kOverlay, 26);
             lv_obj_set_style_border_width(stop, 1, 0);
             lv_obj_set_style_border_color(stop, color(kError), 0);
             lv_obj_add_flag(stop, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(stop, wifi_stop_clicked, LV_EVENT_CLICKED, this);
             label(stop, state == WIFI_PORTAL_SUCCESS ? "立即关闭热点" : "停止配网",
                   0, 15, 268, kBodyFont, kError);
-            label(root_, "A 返回设置 · 配网会继续运行", kSafeX, 420, kSafeWidth,
+            label(root_, "A 返回 · 配网继续运行", kSafeX, 439, kSafeWidth,
                   kBodyFont, kSecondary);
             break;
         }

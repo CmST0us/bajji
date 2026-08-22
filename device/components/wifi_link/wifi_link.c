@@ -595,32 +595,24 @@ static void publish_portal_state(wifi_portal_state_t state, int32_t error,
 }
 
 static void generate_portal_identity(void) {
-    static const char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     uint8_t mac[6];
-    uint8_t random_bytes[28];
+    uint8_t random_bytes[16];
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     esp_fill_random(random_bytes, sizeof(random_bytes));
 
     char ssid[33];
-    char password[13];
     char token[33];
     snprintf(ssid, sizeof(ssid), "Bajji-%02X%02X%02X", mac[3], mac[4], mac[5]);
-    for (size_t index = 0; index < sizeof(password) - 1; ++index) {
-        password[index] = alphabet[random_bytes[index] % (sizeof(alphabet) - 1)];
-    }
-    password[sizeof(password) - 1] = '\0';
     for (size_t index = 0; index < 16; ++index) {
-        snprintf(token + index * 2, 3, "%02x", random_bytes[index + 12]);
+        snprintf(token + index * 2, 3, "%02x", random_bytes[index]);
     }
 
     portENTER_CRITICAL(&status_lock);
     memcpy(status.portal_ssid, ssid, sizeof(status.portal_ssid));
-    memcpy(status.portal_password, password, sizeof(status.portal_password));
     status.portal_selected_ssid[0] = '\0';
     memcpy(portal_token, token, sizeof(portal_token));
     portEXIT_CRITICAL(&status_lock);
     memset(random_bytes, 0, sizeof(random_bytes));
-    memset(password, 0, sizeof(password));
     memset(token, 0, sizeof(token));
 }
 
@@ -684,7 +676,6 @@ static void portal_timer_callback(void* argument) {
 
 static void clear_portal_secrets(void) {
     portENTER_CRITICAL(&status_lock);
-    memset(status.portal_password, 0, sizeof(status.portal_password));
     memset(portal_token, 0, sizeof(portal_token));
     portEXIT_CRITICAL(&status_lock);
     memset(&portal_trial_config, 0, sizeof(portal_trial_config));
@@ -751,21 +742,16 @@ static esp_err_t start_portal(void) {
     if (result == ESP_OK) result = stop_result;
 
     char ssid[sizeof(status.portal_ssid)];
-    char password[sizeof(status.portal_password)];
     portENTER_CRITICAL(&status_lock);
     memcpy(ssid, status.portal_ssid, sizeof(ssid));
-    memcpy(password, status.portal_password, sizeof(password));
     portEXIT_CRITICAL(&status_lock);
     wifi_config_t access_point = {0};
     access_point.ap.ssid_len = (uint8_t)strlen(ssid);
     memcpy(access_point.ap.ssid, ssid, access_point.ap.ssid_len);
-    memcpy(access_point.ap.password, password, strlen(password));
     access_point.ap.channel = 1;
     access_point.ap.max_connection = 1;
-    access_point.ap.authmode = WIFI_AUTH_WPA2_PSK;
-    access_point.ap.pmf_cfg.capable = true;
+    access_point.ap.authmode = WIFI_AUTH_OPEN;
     access_point.ap.csa_count = 3;
-    memset(password, 0, sizeof(password));
 
     if (result == ESP_OK) result = esp_wifi_set_storage(WIFI_STORAGE_RAM);
     if (result == ESP_OK) result = esp_wifi_set_mode(WIFI_MODE_APSTA);

@@ -29,7 +29,6 @@ typedef struct {
     int32_t last_error;
     wifi_portal_state_t portal_state;
     char portal_ssid[33];
-    char portal_password[13];
     char portal_selected_ssid[33];
     uint16_t portal_seconds_remaining;
     int32_t portal_last_error;
