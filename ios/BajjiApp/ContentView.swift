@@ -6,6 +6,7 @@ import UIKit
 
 struct ContentView: View {
     let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
 
@@ -13,35 +14,40 @@ struct ContentView: View {
         TabView {
             Tab("设备", systemImage: "applewatch") {
                 NavigationStack {
-                    DeviceHomeView(tunnel: tunnel, accessory: accessory)
+                    DeviceHomeView(tunnel: tunnel, device: device, accessory: accessory)
                 }
             }
 
             Tab("图片", systemImage: "photo.on.rectangle.angled") {
                 NavigationStack {
-                    ImagesHomeView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
+                    ImagesHomeView(device: device, accessory: accessory, wallpaper: wallpaper)
                 }
             }
 
             Tab("设置", systemImage: "gearshape") {
                 NavigationStack {
-                    SettingsHomeView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
+                    SettingsHomeView(tunnel: tunnel, device: device, accessory: accessory,
+                                     wallpaper: wallpaper)
                 }
             }
         }
         .tint(.bajjiAccent)
+        .task(id: accessory.selectedBluetoothIdentifier) {
+            await device.start(identifier: accessory.selectedBluetoothIdentifier)
+        }
     }
 }
 
 private struct DeviceHomeView: View {
     let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     @State private var showsPairing = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(accessory.hasAccessory ? "StopWatch 已连接" : "连接你的 StopWatch")
+                Text(accessory.hasAccessory ? device.status : "连接你的 StopWatch")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -49,7 +55,7 @@ private struct DeviceHomeView: View {
                     connectedCard
                     connectionHealth
                     NavigationLink("管理网络") {
-                        NetworkView(tunnel: tunnel, accessory: accessory)
+                        NetworkView(tunnel: tunnel, device: device, accessory: accessory)
                     }
                     .buttonStyle(BajjiPrimaryButtonStyle())
                 } else {
@@ -69,13 +75,6 @@ private struct DeviceHomeView: View {
         .sheet(isPresented: $showsPairing) {
             PairingSetupView(accessory: accessory)
         }
-        .task {
-            await tunnel.refresh()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                await tunnel.readSnapshot()
-            }
-        }
     }
 
     private var emptyCard: some View {
@@ -86,7 +85,7 @@ private struct DeviceHomeView: View {
             VStack(spacing: 8) {
                 Text("你的 Bajji，随时在线")
                     .font(.title2.bold())
-                Text("Wi‑Fi 优先联网；不可用时自动切换到 iPhone。")
+                Text("添加后自动连接设备，再由你选择 Wi‑Fi 或 VPN。")
                     .font(.body)
                     .foregroundStyle(.white.opacity(0.78))
                     .multilineTextAlignment(.center)
@@ -108,16 +107,16 @@ private struct DeviceHomeView: View {
                 Text(accessory.status)
                     .font(.title2.bold())
                 Spacer()
-                StatusBadge("已添加", color: .bajjiSuccess)
+                StatusBadge(device.status, color: device.isReady ? .bajjiSuccess : .bajjiWarning)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("VPN 兜底")
+                Text("当前网络")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.72))
-                Text(tunnel.status)
+                Text(networkModeLabel)
                     .font(.title3.weight(.semibold))
-                Text("Wi‑Fi 优先；VPN 仅在需要时提供备用链路。")
+                Text("网络方式由你选择；设备不会自动切换到其他链路。")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.72))
             }
@@ -138,15 +137,22 @@ private struct DeviceHomeView: View {
 
             StatusRow(label: "StopWatch", value: "已绑定", valueColor: .bajjiSuccess)
             Divider()
-            StatusRow(label: "VPN 兜底", value: tunnel.status)
+            StatusRow(label: "控制连接", value: device.status,
+                      valueColor: device.isReady ? .bajjiSuccess : .secondary)
             Divider()
-            StatusRow(
-                label: "蓝牙链路",
-                value: tunnel.diagnostics?.bluetooth.state ?? "按需连接"
-            )
+            StatusRow(label: "网络方式", value: networkModeLabel)
         }
         .padding(20)
         .bajjiCard()
+    }
+
+    private var networkModeLabel: String {
+        switch device.network?.mode {
+        case .manual: "指定 Wi‑Fi"
+        case .shared: "共享 iPhone Wi‑Fi"
+        case .vpn: "VPN 通道"
+        case .unset, nil: "尚未选择"
+        }
     }
 }
 
@@ -213,147 +219,192 @@ private struct PairingSetupView: View {
 
 private struct NetworkView: View {
     let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     @State private var showsWiFiSharing = false
-    @State private var showsVPNSetup = false
+    @State private var errorMessage: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("StopWatch 优先使用 Wi‑Fi；不可用时自动降级到 iPhone。")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-
-                networkCard(
-                    eyebrow: "首选链路",
-                    title: "Wi‑Fi",
-                    badge: wifiBadge,
-                    detail: "通过 iOS 系统安全共享当前个人网络；App 不保存或显示密码。"
-                ) {
-                    Button(wifiActionTitle) { showsWiFiSharing = true }
-                        .buttonStyle(BajjiPrimaryButtonStyle())
-                        .disabled(!accessory.hasAccessory || accessory.isBusy)
-                }
-
-                networkCard(
-                    eyebrow: "备用链路",
-                    title: "VPN 兜底",
-                    badge: vpnBadge,
-                    detail: "仅在 Wi‑Fi 不可用时，经 BLE L2CAP 为 StopWatch 转发 IPv4。"
-                ) {
-                    vpnAction
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("链路优先级")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Wi‑Fi  →  iPhone VPN  →  离线")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                .clipShape(.rect(cornerRadius: 16))
-
-                Text("系统扩展、权限或地区不支持时，会提供明确的恢复路径。")
-                    .font(.footnote)
+        List {
+            Section {
+                Text("选择一种互斥的上网方式。连接失败时，Bajji 只重试当前选择。")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            .padding(24)
+
+            Section("连接方式") {
+                NavigationLink {
+                    ManualNetworkView(device: device)
+                } label: {
+                    networkRow(.manual, title: "手动设置目标网络",
+                               detail: "输入 SSID 与密码，通过蓝牙保存到设备")
+                }
+
+                Button {
+                    selectShared()
+                } label: {
+                    networkRow(.shared, title: "共享 iPhone Wi‑Fi",
+                               detail: "由 Wi‑Fi Infrastructure 安全共享当前网络")
+                }
+                .buttonStyle(.plain)
+                .disabled(!device.isReady || device.isBusy || accessory.isBusy)
+
+                Button {
+                    Task { await selectVPN() }
+                } label: {
+                    networkRow(.vpn, title: "使用 VPN 通道",
+                               detail: vpnDetail)
+                }
+                .buttonStyle(.plain)
+                .disabled(!device.isReady || device.isBusy)
+            }
+
+            Section {
+                LabeledContent("设备控制", value: device.status)
+                LabeledContent("网络", value: networkStatus)
+                if device.network?.mode == .vpn {
+                    LabeledContent("VPN", value: tunnel.status)
+                }
+                if let ssid = device.network?.ssid, !ssid.isEmpty {
+                    LabeledContent("SSID", value: ssid)
+                }
+            } header: {
+                Text("当前状态")
+            } footer: {
+                Text("也可在 StopWatch 设置中打开独立 Wi‑Fi 配网；Portal 成功后会显示为“手动设置目标网络”。")
+            }
+
+            if let errorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+            }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("网络")
         .sheet(isPresented: $showsWiFiSharing) {
-            WiFiSharingView(tunnel: tunnel, accessory: accessory)
+            WiFiSharingView(device: device, accessory: accessory)
         }
-        .sheet(isPresented: $showsVPNSetup) {
-            VPNSetupView(tunnel: tunnel)
+        .task {
+            if device.isReady { _ = try? await device.readNetworkState() }
         }
-        .task { await tunnel.refresh() }
     }
 
-    private func networkCard<Actions: View>(
-        eyebrow: String,
-        title: String,
-        badge: BadgeValue,
-        detail: String,
-        @ViewBuilder actions: () -> Actions
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(eyebrow.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline) {
+    private func networkRow(_ mode: DeviceNetworkMode, title: String,
+                            detail: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: device.network?.mode == mode ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(device.network?.mode == mode ? Color.bajjiAccent : .secondary)
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.title2.weight(.semibold))
-                Spacer()
-                StatusBadge(badge.label, color: badge.color)
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text(detail)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            actions()
-                .padding(.top, 12)
+            Spacer()
+            if device.network?.mode == mode {
+                StatusBadge("已选择", color: .bajjiAccent)
+            }
         }
-        .padding(18)
-        .bajjiCard()
+        .frame(minHeight: 52)
+        .contentShape(Rectangle())
     }
 
-    @ViewBuilder
-    private var vpnAction: some View {
+    private func selectShared() {
+        Task {
+            do {
+                _ = try await device.selectNetwork(.shared)
+                showsWiFiSharing = true
+                accessory.shareWiFi()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func selectVPN() async {
+        do {
+            _ = try await device.selectNetwork(.vpn)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var networkStatus: String {
+        switch device.network?.linkState {
+        case .disabled: "已停用"
+        case .unconfigured: "等待选择"
+        case .awaitingCredentials: "等待凭据"
+        case .connecting: "连接中"
+        case .connected: "已连接"
+        case .retrying: "重试中"
+        case nil: "正在读取"
+        }
+    }
+
+    private var vpnDetail: String {
         switch tunnel.state {
-        case .notInstalled, .invalid:
-            Button("设置 VPN 兜底") { showsVPNSetup = true }
-                .buttonStyle(BajjiOutlineButtonStyle())
-        case .installed:
-            Button("启用 VPN 兜底") { Task { await tunnel.start() } }
-                .buttonStyle(BajjiOutlineButtonStyle())
-                .disabled(tunnel.isBusy)
-        case .connected, .reconnecting:
-            Button("停止 VPN 兜底", role: .destructive) { tunnel.stop() }
-                .buttonStyle(BajjiOutlineButtonStyle(color: .red))
-        case .connecting, .disconnecting, .unknown:
-            ProgressView(tunnel.status)
-                .frame(maxWidth: .infinity, minHeight: 56)
+        case .notInstalled, .invalid: "选择后安装 VPN 配置并立即启动"
+        case .connected: "VPN 活动，设备通过 iPhone 上网"
+        case .connecting, .reconnecting: "VPN 正在连接"
+        default: "选择后保持按需 VPN 活动"
         }
     }
+}
 
-    private var wifiActionTitle: String {
-        switch accessory.wifiSharingState {
-        case .shared: "重新共享 Wi‑Fi"
-        case .failed, .restricted: "检查并重试"
-        case .notShared, .authorizing: "共享 iPhone Wi‑Fi"
+private struct ManualNetworkView: View {
+    @Environment(\.dismiss) private var dismiss
+    let device: DeviceConnectionManager
+    @State private var ssid = ""
+    @State private var password = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("SSID", text: $ssid)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("密码（开放网络留空）", text: $password)
+                    .textContentType(.password)
+            } header: {
+                Text("目标网络")
+            } footer: {
+                Text("支持开放网络及 WPA2/WPA3 个人网络；密码不会保存在 App 中。")
+            }
+            Section {
+                Button(device.isBusy ? "正在连接…" : "保存并连接") {
+                    Task { await save() }
+                }
+                .disabled(device.isBusy || ssid.isEmpty)
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(.red)
+                }
+            }
         }
+        .navigationTitle("手动设置 Wi‑Fi")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var wifiBadge: BadgeValue {
-        switch accessory.wifiSharingState {
-        case .notShared: BadgeValue("尚未共享", .bajjiWarning)
-        case .authorizing: BadgeValue("授权中", .bajjiAccent)
-        case .shared: BadgeValue("已共享", .bajjiSuccess)
-        case .restricted: BadgeValue("受限", .bajjiWarning)
-        case .failed: BadgeValue("需重试", .bajjiWarning)
-        }
-    }
-
-    private var vpnBadge: BadgeValue {
-        switch tunnel.state {
-        case .notInstalled, .invalid: BadgeValue("未设置", .secondary)
-        case .installed: BadgeValue("待命", .secondary)
-        case .connecting: BadgeValue("连接中", .bajjiAccent)
-        case .connected: BadgeValue("活动", .bajjiSuccess)
-        case .reconnecting: BadgeValue("重连中", .bajjiWarning)
-        case .disconnecting: BadgeValue("停止中", .secondary)
-        case .unknown: BadgeValue("未知", .secondary)
+    private func save() async {
+        do {
+            _ = try await device.selectNetwork(.manual, ssid: ssid, password: password)
+            password = ""
+            dismiss()
+        } catch {
+            password = ""
+            errorMessage = error.localizedDescription
         }
     }
 }
 
 private struct WiFiSharingView: View {
     @Environment(\.dismiss) private var dismiss
-    let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
-    @State private var showsVPNSetup = false
 
     var body: some View {
         NavigationStack {
@@ -386,9 +437,6 @@ private struct WiFiSharingView: View {
             }
         }
         .interactiveDismissDisabled(accessory.wifiSharingState == .authorizing)
-        .sheet(isPresented: $showsVPNSetup) {
-            VPNSetupView(tunnel: tunnel)
-        }
     }
 
     private var intro: some View {
@@ -450,7 +498,7 @@ private struct WiFiSharingView: View {
             Label("Wi‑Fi 已共享", systemImage: "checkmark.circle.fill")
                 .font(.title.bold())
                 .foregroundStyle(Color.bajjiSuccess)
-            Text("StopWatch 会优先使用刚刚由 iOS 共享的个人网络。")
+            Text("StopWatch 将只使用刚刚由 iOS 共享的个人网络。")
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -459,13 +507,11 @@ private struct WiFiSharingView: View {
                     .font(.title2.bold())
                 Text("凭据由系统加密下发；Bajji App 不保存密码。")
                     .foregroundStyle(.secondary)
-                Divider()
-                StatusRow(label: "VPN 兜底", value: "待命")
             }
             .padding(18)
             .bajjiCard()
 
-            Text("实际联网状态由 StopWatch 确认；若网络不可达，将自动尝试 VPN 兜底。")
+            Text("实际联网状态由 StopWatch 确认；失败时只会重试这一个网络。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -498,8 +544,9 @@ private struct WiFiSharingView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 
-            Button("使用 VPN 兜底") { showsVPNSetup = true }
-                .buttonStyle(BajjiPrimaryButtonStyle())
+            Text("关闭此页后可在网络列表中改选手动 Wi‑Fi 或 VPN 通道。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -523,85 +570,6 @@ private struct WiFiSharingView: View {
         case .failed: "共享未完成"
         case .notShared, .authorizing: "共享 Wi‑Fi"
         }
-    }
-}
-
-private struct VPNSetupView: View {
-    @Environment(\.dismiss) private var dismiss
-    let tunnel: TunnelManager
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("当 Wi‑Fi 不可用时，让 StopWatch 临时借用 iPhone 的网络。")
-                        .foregroundStyle(.secondary)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Bajji Packet Tunnel")
-                                .font(.title2.weight(.semibold))
-                            Spacer()
-                            StatusBadge("按需启用", color: .bajjiAccent)
-                        }
-                        Text("使用已绑定的 BLE L2CAP 通道承载 IPv4；不会替代 iPhone 的普通 VPN。")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        Divider()
-                        StatusRow(label: "路由范围", value: "10.77.0.0/30")
-                        StatusRow(label: "触发条件", value: "Wi‑Fi 不可用")
-                        StatusRow(label: "传输", value: "绑定的 BLE")
-                    }
-                    .padding(18)
-                    .bajjiCard()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("需要系统确认")
-                            .font(.headline)
-                        Text("iOS 会显示 VPN 配置授权；Bajji 不会跳过或伪造这个系统界面。")
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(16)
-                    .background(Color(uiColor: .tertiarySystemGroupedBackground))
-                    .clipShape(.rect(cornerRadius: 16))
-
-                    Text("安装后保持待命；只有备用链路真正启用时，状态栏才显示活动连接。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Button {
-                        Task {
-                            await tunnel.install()
-                            if tunnel.state == .installed { dismiss() }
-                        }
-                    } label: {
-                        if tunnel.isBusy {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text(tunnel.state == .installed ? "VPN 配置已安装" : "安装 VPN 配置")
-                        }
-                    }
-                    .buttonStyle(BajjiPrimaryButtonStyle())
-                    .disabled(tunnel.isBusy || tunnel.state == .installed)
-
-                    if tunnel.state == .invalid {
-                        Text(tunnel.detail)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                }
-                .padding(24)
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("设置 VPN 兜底")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
-            }
-        }
-        .interactiveDismissDisabled(tunnel.isBusy)
     }
 }
 
@@ -638,7 +606,7 @@ private struct BadgeValue {
 }
 
 private struct ImagesHomeView: View {
-    let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
     @State private var showsEditor = false
@@ -647,7 +615,7 @@ private struct ImagesHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("选择、预览并发送适合圆形表盘的 Bajji 图片。")
+                Text("选择并发送方形原图；圆屏遮罩由 StopWatch 最终处理。")
                     .font(.body)
                     .foregroundStyle(.secondary)
 
@@ -709,17 +677,17 @@ private struct ImagesHomeView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("图片")
         .sheet(isPresented: $showsEditor) {
-            WallpaperEditorView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
+            WallpaperEditorView(device: device, accessory: accessory, wallpaper: wallpaper)
         }
         .sheet(isPresented: $showsTransferStatus) {
-            WallpaperTransferStatusView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
+            WallpaperTransferStatusView(device: device, accessory: accessory, wallpaper: wallpaper)
         }
     }
 }
 
 private struct WallpaperEditorView: View {
     @Environment(\.dismiss) private var dismiss
-    let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
     @State private var selectedItem: PhotosPickerItem?
@@ -770,7 +738,7 @@ private struct WallpaperEditorView: View {
             Text(importError ?? "未知错误")
         }
         .sheet(isPresented: $showsTransferStatus) {
-            WallpaperTransferStatusView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
+            WallpaperTransferStatusView(device: device, accessory: accessory, wallpaper: wallpaper)
         }
         .onChange(of: showsTransferStatus) { wasPresented, isPresented in
             if wasPresented && !isPresented { dismiss() }
@@ -799,7 +767,7 @@ private struct WallpaperEditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("导入后处理")
                     .font(.headline)
-                Text("支持常见照片格式；确认后生成 468×468 的圆形显示预览。")
+                Text("支持常见照片格式；确认后生成 468×468 无损方形 PNG。")
                     .foregroundStyle(.secondary)
             }
             .padding(16)
@@ -820,35 +788,35 @@ private struct WallpaperEditorView: View {
 
     private func editor(_ image: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("拖动和缩放图片，确认圆形表盘中的可见区域。")
+            Text("拖动和缩放图片，选择要发送给 StopWatch 的方形区域。")
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 16) {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: wallpaper.displayMode.contentMode)
+                    .scaledToFill()
                     .scaleEffect(wallpaper.zoom)
                     .offset(wallpaper.offset)
                     .frame(width: 208, height: 208)
                     .background(.black)
-                    .clipShape(.circle)
-                    .overlay { Circle().stroke(Color.bajjiAccent, lineWidth: 3) }
+                    .clipped()
+                    .overlay { Rectangle().stroke(Color.bajjiAccent, lineWidth: 3) }
                     .frame(maxWidth: .infinity)
-                    .contentShape(Circle())
+                    .contentShape(Rectangle())
                     .gesture(
                         DragGesture()
                             .onChanged { value in
-                                wallpaper.offset = CGSize(
+                                wallpaper.setOffset(CGSize(
                                     width: dragOrigin.width + value.translation.width,
                                     height: dragOrigin.height + value.translation.height
-                                )
+                                ), for: image)
                             }
                             .onEnded { _ in dragOrigin = wallpaper.offset }
                     )
                     .simultaneousGesture(
                         MagnifyGesture()
                             .onChanged { value in
-                                wallpaper.zoom = min(4, max(1, zoomOrigin * value.magnification))
+                                wallpaper.setZoom(zoomOrigin * value.magnification, for: image)
                             }
                             .onEnded { _ in zoomOrigin = wallpaper.zoom }
                     )
@@ -857,20 +825,16 @@ private struct WallpaperEditorView: View {
                         dragOrigin = .zero
                         zoomOrigin = 1
                     }
-                    .accessibilityLabel("圆形壁纸预览")
-
-                Picker("显示方式", selection: Bindable(wallpaper).displayMode) {
-                    ForEach(WallpaperDisplayMode.allCases, id: \.self) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
+                    .accessibilityLabel("方形壁纸裁切预览")
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(format: "缩放  %.1f×", wallpaper.zoom))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Slider(value: Bindable(wallpaper).zoom, in: 1...4, step: 0.1)
+                    Slider(value: Binding(
+                        get: { wallpaper.zoom },
+                        set: { wallpaper.setZoom($0, for: image) }
+                    ), in: 1...4, step: 0.1)
                 }
 
                 Divider()
@@ -881,7 +845,7 @@ private struct WallpaperEditorView: View {
             .padding(18)
             .bajjiCard()
 
-            Text("圆形以外的区域不会显示；保存前仍可返回重新选图。")
+            Text("实际保存完整方形文件；首页圆形效果仅用于模拟设备显示。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -901,7 +865,7 @@ private struct WallpaperEditorView: View {
 
 private struct WallpaperTransferStatusView: View {
     @Environment(\.dismiss) private var dismiss
-    let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
     @State private var phase = Phase.ready
@@ -936,7 +900,7 @@ private struct WallpaperTransferStatusView: View {
                             .tint(.bajjiAccent)
                             .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
                         }
-                        TransferStep(number: "01", title: "准备圆形资源", detail: "468×468 JPEG 已保存在 App", state: .complete)
+                        TransferStep(number: "01", title: "准备方形资源", detail: "468×468 无损 PNG 已保存在 App", state: .complete)
                         TransferStep(number: "02", title: "发送到 StopWatch", detail: transferDetail, state: transferStepState)
                         TransferStep(number: "03", title: "校验壁纸文件", detail: "核对大小、CRC、格式与解码预算", state: validationStepState)
                         TransferStep(number: "04", title: "原子替换并确认", detail: "设备回执成功后才更新当前壁纸", state: applyStepState)
@@ -948,9 +912,7 @@ private struct WallpaperTransferStatusView: View {
                         Text("先添加 StopWatch；图片仍会保留在 App 中。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                    } else if tunnel.state == .connected &&
-                                tunnel.diagnostics?.bluetooth.state == "L2CAP ready" &&
-                                !supportsWallpaper {
+                    } else if device.isReady && !supportsWallpaper {
                         Text("当前 StopWatch 固件不支持手机传图，请先升级设备固件。")
                             .font(.footnote)
                             .foregroundStyle(.red)
@@ -986,11 +948,6 @@ private struct WallpaperTransferStatusView: View {
                 phase = .success
                 progress = 1
             }
-            await tunnel.refresh()
-            while !Task.isCancelled {
-                await tunnel.readSnapshot()
-                try? await Task.sleep(for: .seconds(1))
-            }
         }
         .onDisappear { transferTask?.cancel() }
     }
@@ -1002,15 +959,10 @@ private struct WallpaperTransferStatusView: View {
         } else if phase == .success {
             Button("完成") { dismiss() }
                 .buttonStyle(BajjiPrimaryButtonStyle())
-        } else if tunnel.state != .connected {
-            Button(controlConnectionTitle) {
-                Task {
-                    if tunnel.state == .notInstalled { await tunnel.install() }
-                    else { await tunnel.start() }
-                }
-            }
+        } else if !device.isReady {
+            Button(device.status) {}
             .buttonStyle(BajjiPrimaryButtonStyle())
-            .disabled(!accessory.hasAccessory || tunnel.isBusy || tunnel.state == .connecting)
+            .disabled(true)
         } else {
             Button(bridgeReady ? "发送到 StopWatch" : "正在连接 StopWatch…") {
                 startTransfer()
@@ -1021,20 +973,11 @@ private struct WallpaperTransferStatusView: View {
     }
 
     private var bridgeReady: Bool {
-        tunnel.diagnostics?.bluetooth.state == "L2CAP ready"
-    }
-
-    private var controlConnectionTitle: String {
-        switch tunnel.state {
-        case .notInstalled: "安装 VPN 控制连接"
-        case .connecting, .reconnecting: "正在建立连接…"
-        default: "启动控制连接"
-        }
+        device.isReady
     }
 
     private var supportsWallpaper: Bool {
-        guard let capabilities = tunnel.diagnostics?.bluetooth.capabilities else { return false }
-        return capabilities & BridgeInfo.wallpaperCapability != 0
+        device.capabilities & BridgeInfo.wallpaperCapability != 0
     }
 
     private var statusLabel: String {
@@ -1092,7 +1035,7 @@ private struct WallpaperTransferStatusView: View {
         transferTask = Task {
             do {
                 let data = try wallpaper.transferData()
-                try await tunnel.sendWallpaper(data) { stage, value in
+                try await device.sendWallpaper(data) { stage, value in
                     progress = value
                     switch stage {
                     case .sending: phase = .sending
@@ -1148,6 +1091,7 @@ private struct TransferStep: View {
 
 private struct SettingsHomeView: View {
     let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
 
@@ -1161,17 +1105,17 @@ private struct SettingsHomeView: View {
 
             Section("STOPWATCH") {
                 NavigationLink {
-                    StopWatchParametersView(tunnel: tunnel, wallpaper: wallpaper)
+                    StopWatchParametersView(device: device, wallpaper: wallpaper)
                 } label: {
                     SettingsRowLabel(title: "StopWatch 参数", detail: "亮度、显示与换图")
                 }
                 NavigationLink {
-                    NetworkView(tunnel: tunnel, accessory: accessory)
+                    NetworkView(tunnel: tunnel, device: device, accessory: accessory)
                 } label: {
-                    SettingsRowLabel(title: "网络与 VPN", detail: "Wi‑Fi 优先")
+                    SettingsRowLabel(title: "网络与 VPN", detail: "用户选择")
                 }
                 NavigationLink {
-                    ImagesHomeView(tunnel: tunnel, accessory: accessory, wallpaper: wallpaper)
+                    ImagesHomeView(device: device, accessory: accessory, wallpaper: wallpaper)
                 } label: {
                     SettingsRowLabel(
                         title: "图片",
@@ -1183,7 +1127,7 @@ private struct SettingsHomeView: View {
 
             Section("支持") {
                 NavigationLink {
-                    DiagnosticsView(tunnel: tunnel, accessory: accessory)
+                    DiagnosticsView(tunnel: tunnel, device: device, accessory: accessory)
                 } label: {
                     SettingsRowLabel(
                         title: "诊断与绑定",
@@ -1224,7 +1168,7 @@ private struct SettingsRowLabel: View {
 }
 
 private struct StopWatchParametersView: View {
-    let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let wallpaper: WallpaperStore
     @AppStorage("bajji.brightness") private var brightness = 0.72
     @AppStorage("bajji.autoRefresh") private var autoRefresh = true
@@ -1285,9 +1229,7 @@ private struct StopWatchParametersView: View {
         }
         .navigationTitle("StopWatch 参数")
         .task {
-            await tunnel.refresh()
             while !Task.isCancelled {
-                await tunnel.readSnapshot()
                 if canSync && !didLoadDeviceValues { await loadDeviceValues() }
                 try? await Task.sleep(for: .seconds(1))
             }
@@ -1299,15 +1241,9 @@ private struct StopWatchParametersView: View {
     }
 
     @ViewBuilder private var parameterAction: some View {
-        if tunnel.state != .connected {
-            Button(tunnel.state == .notInstalled ? "安装 VPN 控制连接" :
-                    (tunnel.state == .connecting ? "正在建立连接…" : "启动控制连接")) {
-                Task {
-                    if tunnel.state == .notInstalled { await tunnel.install() }
-                    else { await tunnel.start() }
-                }
-            }
-            .disabled(tunnel.isBusy || tunnel.state == .connecting)
+        if !device.isReady {
+            Button(device.status) {}
+                .disabled(true)
         } else if bridgeReady && !supportsSettings {
             Button("需要升级 StopWatch 固件") {}
                 .disabled(true)
@@ -1320,22 +1256,21 @@ private struct StopWatchParametersView: View {
     }
 
     private var bridgeReady: Bool {
-        tunnel.diagnostics?.bluetooth.state == "L2CAP ready"
+        device.isReady
     }
 
     private var supportsSettings: Bool {
-        guard let capabilities = tunnel.diagnostics?.bluetooth.capabilities else { return false }
-        return capabilities & BridgeInfo.settingsCapability != 0
+        device.capabilities & BridgeInfo.settingsCapability != 0
     }
 
-    private var canSync: Bool { tunnel.state == .connected && bridgeReady && supportsSettings }
+    private var canSync: Bool { bridgeReady && supportsSettings }
 
     private func loadDeviceValues() async {
         guard !isSyncing else { return }
         isSyncing = true
         defer { isSyncing = false }
         do {
-            updateForm(try await tunnel.readDeviceSettings())
+            updateForm(try await device.readDeviceSettings())
             didLoadDeviceValues = true
             syncMessage = "已读取 StopWatch 当前参数"
             syncFailed = false
@@ -1356,12 +1291,12 @@ private struct StopWatchParametersView: View {
             autoRefreshMinutes: autoRefresh ? UInt16(clamping: refreshMinutes) : 0
         )
         do {
-            updateForm(try await tunnel.applyDeviceSettings(settings))
+            updateForm(try await device.applyDeviceSettings(settings))
             syncMessage = "StopWatch 已应用并保存参数"
             syncFailed = false
             syncSuccessCount += 1
         } catch {
-            if let current = try? await tunnel.readDeviceSettings() { updateForm(current) }
+            if let current = try? await device.readDeviceSettings() { updateForm(current) }
             syncMessage = error.localizedDescription + " 已重新读取设备当前值。"
             syncFailed = true
         }
@@ -1434,6 +1369,7 @@ private enum RefreshInterval: Int, CaseIterable {
 
 private struct DiagnosticsView: View {
     let tunnel: TunnelManager
+    let device: DeviceConnectionManager
     let accessory: AccessoryManager
     @State private var showsUnpairConfirmation = false
     @State private var isUnpairing = false
@@ -1454,6 +1390,8 @@ private struct DiagnosticsView: View {
                         value: accessory.hasAccessory ? "已添加" : "未添加",
                         valueColor: accessory.hasAccessory ? .bajjiSuccess : .secondary
                     )
+                    Divider()
+                    StatusRow(label: "控制连接", value: device.status)
                     Divider()
                     StatusRow(label: "Wi‑Fi", value: wifiStatus)
                     Divider()
@@ -1546,9 +1484,7 @@ private struct DiagnosticsView: View {
     private func unpair() {
         isUnpairing = true
         Task {
-            if tunnel.state == .connected {
-                await tunnel.clearBinding()
-            }
+            await device.clearBinding()
             await accessory.removeAccessory()
             if accessory.hasAccessory {
                 unpairError = accessory.detail
@@ -1745,7 +1681,6 @@ enum WallpaperDisplayMode: String, CaseIterable {
 final class WallpaperStore {
     private static let maximumImportBytes = 40 * 1024 * 1024
     private static let maximumPixels: CGFloat = 50_000_000
-    private static let deviceSize = CGSize(width: 468, height: 468)
 
     var currentImage: UIImage?
     var draftImage: UIImage?
@@ -1770,10 +1705,11 @@ final class WallpaperStore {
             displayMode = savedMode
         }
         lastSentAt = UserDefaults.standard.object(forKey: "bajji.wallpaperLastSentAt") as? Date
-        guard let data = try? Data(contentsOf: Self.savedImageURL),
+        guard let url = Self.currentImageURL,
+              let data = try? Data(contentsOf: url),
               let image = UIImage(data: data) else { return }
         currentImage = image
-        updatedAt = (try? Self.savedImageURL.resourceValues(forKeys: [.contentModificationDateKey]))?
+        updatedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate
     }
 
@@ -1792,8 +1728,8 @@ final class WallpaperStore {
 
     func saveDraft() throws {
         guard let image = draftImage else { throw WallpaperError.unreadableImage }
-        let rendered = render(image)
-        guard let data = rendered.jpegData(compressionQuality: 0.9) else {
+        let rendered = WallpaperRenderer.render(image, zoom: zoom, offset: offset)
+        guard let data = rendered.pngData() else {
             throw WallpaperError.couldNotEncode
         }
         try FileManager.default.createDirectory(
@@ -1801,6 +1737,7 @@ final class WallpaperStore {
             withIntermediateDirectories: true
         )
         try data.write(to: Self.savedImageURL, options: .atomic)
+        try? FileManager.default.removeItem(at: Self.legacyImageURL)
         currentImage = rendered
         updatedAt = Date()
         draftImage = nil
@@ -1813,7 +1750,8 @@ final class WallpaperStore {
     }
 
     func transferData() throws -> Data {
-        let data = try Data(contentsOf: Self.savedImageURL)
+        guard let url = Self.currentImageURL else { throw WallpaperError.unreadableImage }
+        let data = try Data(contentsOf: url)
         guard !data.isEmpty else { throw WallpaperError.unreadableImage }
         return data
     }
@@ -1828,42 +1766,29 @@ final class WallpaperStore {
         offset = .zero
     }
 
-    private func render(_ image: UIImage) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: Self.deviceSize)
-        return renderer.image { context in
-            let canvas = CGRect(origin: .zero, size: Self.deviceSize)
-            UIColor.black.setFill()
-            context.fill(canvas)
+    func setZoom(_ value: CGFloat, for image: UIImage) {
+        zoom = min(4, max(1, value))
+        offset = WallpaperRenderer.clampedOffset(offset, imageSize: image.size, zoom: zoom)
+    }
 
-            context.cgContext.saveGState()
-            UIBezierPath(ovalIn: canvas).addClip()
-            let baseScale: CGFloat
-            switch displayMode {
-            case .fit:
-                baseScale = min(Self.deviceSize.width / image.size.width,
-                                Self.deviceSize.height / image.size.height)
-            case .fill:
-                baseScale = max(Self.deviceSize.width / image.size.width,
-                                Self.deviceSize.height / image.size.height)
-            }
-            let drawSize = CGSize(
-                width: image.size.width * baseScale * zoom,
-                height: image.size.height * baseScale * zoom
-            )
-            let previewToDevice = Self.deviceSize.width / 208
-            let origin = CGPoint(
-                x: (Self.deviceSize.width - drawSize.width) / 2 + offset.width * previewToDevice,
-                y: (Self.deviceSize.height - drawSize.height) / 2 + offset.height * previewToDevice
-            )
-            image.draw(in: CGRect(origin: origin, size: drawSize))
-            context.cgContext.restoreGState()
-        }
+    func setOffset(_ value: CGSize, for image: UIImage) {
+        offset = WallpaperRenderer.clampedOffset(value, imageSize: image.size, zoom: zoom)
     }
 
     private static var savedImageURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appending(path: "Bajji", directoryHint: .isDirectory)
-            .appending(path: "wallpaper-preview.jpg")
+            .appending(path: "wallpaper-preview.png")
+    }
+
+    private static var legacyImageURL: URL {
+        savedImageURL.deletingLastPathComponent().appending(path: "wallpaper-preview.jpg")
+    }
+
+    private static var currentImageURL: URL? {
+        if FileManager.default.fileExists(atPath: savedImageURL.path) { return savedImageURL }
+        if FileManager.default.fileExists(atPath: legacyImageURL.path) { return legacyImageURL }
+        return nil
     }
 }
 

@@ -34,6 +34,12 @@
 		D10E0268798D8382E5B545AA /* BridgeInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D42DDA3475306F1AFFFD0FB /* BridgeInfo.swift */; };
 		DA0C5CA91866CCF57B0AADBE /* BajjiApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0B5A9EA7333C472AE6191C /* BajjiApp.swift */; };
 		DD32E9A8DC96F3274D61766C /* L2CAPStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76248FB037A7A23EE7520C92 /* L2CAPStream.swift */; };
+		B20000000000000000000001 /* BluetoothBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CAA04CCAC98DC4267EDF131 /* BluetoothBridge.swift */; };
+		B20000000000000000000002 /* L2CAPStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76248FB037A7A23EE7520C92 /* L2CAPStream.swift */; };
+		B20000000000000000000004 /* DeviceConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000003 /* DeviceConnectionManager.swift */; };
+		B20000000000000000000006 /* WallpaperRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* WallpaperRenderer.swift */; };
+		B20000000000000000000008 /* WallpaperRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* WallpaperRenderer.swift */; };
+		B2000000000000000000000A /* WallpaperRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000009 /* WallpaperRendererTests.swift */; };
 		E353E5CE008539FC104C496C /* BridgeStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73D9B41820ABD0FACE4D9C9 /* BridgeStreamParser.swift */; };
 		F377A80C07F2827D91C3F34D /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938200F8C75BD8A1AB6F62C5 /* PacketTunnelProvider.swift */; };
 		F6C67C77B72693474155B1A8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1009E531CB853590DF45A160 /* Foundation.framework */; };
@@ -127,6 +133,9 @@
 		A10100000000000000000006 /* WiFiSharingProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WiFiSharingProvider.swift; sourceTree = "<group>"; };
 		A10100000000000000000007 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10100000000000000000008 /* WiFiSharingExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = WiFiSharingExtension.entitlements; sourceTree = "<group>"; };
+		B20000000000000000000003 /* DeviceConnectionManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceConnectionManager.swift; sourceTree = "<group>"; };
+		B20000000000000000000005 /* WallpaperRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WallpaperRenderer.swift; sourceTree = "<group>"; };
+		B20000000000000000000009 /* WallpaperRendererTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WallpaperRendererTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -200,6 +209,7 @@
 				061A00000000000000000105 /* IPv4PacketTests.swift */,
 				061A00000000000000000106 /* PacketPipeTests.swift */,
 				A10100000000000000000003 /* WiFiProvisioningTests.swift */,
+				B20000000000000000000009 /* WallpaperRendererTests.swift */,
 			);
 			path = BajjiTests;
 			sourceTree = "<group>";
@@ -253,6 +263,8 @@
 				6644BBC4F39FA0CA4D510226 /* ContentView.swift */,
 				E13F075D8DFDA69B75848D8C /* TunnelManager.swift */,
 				A10100000000000000000001 /* AccessoryManager.swift */,
+				B20000000000000000000003 /* DeviceConnectionManager.swift */,
+				B20000000000000000000005 /* WallpaperRenderer.swift */,
 				BB4B81A1D237B2046DC619EB /* Info.plist */,
 				3D162380CAAA053EBBE49B37 /* Bajji.entitlements */,
 			);
@@ -449,6 +461,8 @@
 				061A00000000000000000008 /* PacketPipeTests.swift in Sources */,
 				A10000000000000000000004 /* WiFiProvisioning.swift in Sources */,
 				A10000000000000000000005 /* WiFiProvisioningTests.swift in Sources */,
+				B20000000000000000000008 /* WallpaperRenderer.swift in Sources */,
+				B2000000000000000000000A /* WallpaperRendererTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -460,6 +474,10 @@
 				C54FDA9910544268CF45AFFC /* ContentView.swift in Sources */,
 				463C89CA4F8B9A4537EFFDF3 /* TunnelManager.swift in Sources */,
 				A10000000000000000000001 /* AccessoryManager.swift in Sources */,
+				B20000000000000000000004 /* DeviceConnectionManager.swift in Sources */,
+				B20000000000000000000006 /* WallpaperRenderer.swift in Sources */,
+				B20000000000000000000001 /* BluetoothBridge.swift in Sources */,
+				B20000000000000000000002 /* L2CAPStream.swift in Sources */,
 				A10000000000000000000002 /* WiFiProvisioning.swift in Sources */,
 				3FD8C2A24434098D5A8895D4 /* BridgeFrame.swift in Sources */,
 				8C555AA899EE8DDC1271E7D5 /* BridgeStreamParser.swift in Sources */,

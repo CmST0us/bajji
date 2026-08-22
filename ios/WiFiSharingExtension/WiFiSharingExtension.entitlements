@@ -8,5 +8,9 @@
 	<array>
 		<string>WiFiNetworkSharing</string>
 	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.${BAJJI_APP_GROUP}</string>
+	</array>
 </dict>
 </plist>

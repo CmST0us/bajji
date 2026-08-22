@@ -17,6 +17,11 @@ struct BluetoothSnapshot: Codable {
     var lastError = ""
 }
 
+enum BluetoothBridgeRole: UInt8, Sendable {
+    case data
+    case controlOnly
+}
+
 final class BluetoothBridge: NSObject, @unchecked Sendable {
     static var serviceUUID: CBUUID { CBUUID(string: BajjiBluetooth.serviceUUID) }
     static var infoUUID: CBUUID { CBUUID(string: BajjiBluetooth.infoUUID) }
@@ -25,8 +30,10 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private let sendSlots = DispatchSemaphore(value: 32)
     private let receiveSlots = DispatchSemaphore(value: 32)
     private let snapshotLock = NSLock()
-    private let defaults = UserDefaults.standard
+    private let defaults = BajjiSharedSettings.defaults
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "Bluetooth")
+    private let role: BluetoothBridgeRole
+    private let targetIdentifier: UUID?
     private var central: CBCentralManager!
     private var peripheral: CBPeripheral?
     private var stream: L2CAPStream?
@@ -43,10 +50,18 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     var onFrame: ((BridgeFrame) -> Void)?
     var onReady: (() -> Void)?
     var onUnavailable: (() -> Void)?
+    var onSnapshot: ((BluetoothSnapshot) -> Void)?
+
+    init(role: BluetoothBridgeRole = .data, targetIdentifier: UUID? = nil) {
+        self.role = role
+        self.targetIdentifier = targetIdentifier
+        super.init()
+    }
 
     func start() {
         queue.async { [weak self] in
             guard let self else { return }
+            shouldReconnect = true
             logger.info("starting Core Bluetooth central")
             central = CBCentralManager(delegate: self, queue: queue)
             update { $0.state = "starting Bluetooth" }
@@ -91,8 +106,11 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
                 completion(.failure(BluetoothRequestError.invalidRequest))
                 return
             }
-            let requiredCapability = expected == .settingsState
-                ? BridgeInfo.settingsCapability : BridgeInfo.wallpaperCapability
+            let requiredCapability: UInt8 = switch expected {
+            case .settingsState: BridgeInfo.settingsCapability
+            case .networkState: BridgeInfo.networkControlCapability
+            default: BridgeInfo.wallpaperCapability
+            }
             guard capabilities & requiredCapability != 0 else {
                 completion(.failure(BluetoothRequestError.unsupported))
                 return
@@ -152,6 +170,23 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
         ])
     }
 
+    private func discoverTarget() {
+        guard central.state == .poweredOn else { return }
+        guard let targetIdentifier else {
+            scan()
+            return
+        }
+        guard let target = central.retrievePeripherals(withIdentifiers: [targetIdentifier]).first else {
+            update {
+                $0.state = "bound device unavailable"
+                $0.lastError = "The saved StopWatch is not currently reachable over Bluetooth."
+            }
+            onUnavailable?()
+            return
+        }
+        connect(target)
+    }
+
     private func connect(_ peripheral: CBPeripheral) {
         guard self.peripheral == nil else { return }
         self.peripheral = peripheral
@@ -174,7 +209,11 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     }
 
     private func update(_ change: (inout BluetoothSnapshot) -> Void) {
-        snapshotLock.withLock { change(&currentSnapshot) }
+        let snapshot = snapshotLock.withLock { () -> BluetoothSnapshot in
+            change(&currentSnapshot)
+            return currentSnapshot
+        }
+        onSnapshot?(snapshot)
     }
 
     private func setReady(_ ready: Bool) {
@@ -196,9 +235,11 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
     private func useBridgeInfo(_ data: Data) {
         do {
             let info = try BridgeInfo(data: data)
-            guard info.capabilities & BridgeInfo.baseCapabilities == BridgeInfo.baseCapabilities,
+            let required = BridgeInfo.baseCapabilities | BridgeInfo.networkControlCapability |
+                (role == .controlOnly ? BridgeInfo.controlOnlyCapability : 0)
+            guard info.capabilities & required == required,
                   info.maximumPayload == BridgeFrame.maximumPayload else {
-                fail("StopWatch does not support the required IPv4/TCP/UDP profile", reconnect: false)
+                fail("StopWatch firmware does not support user-selected networking", reconnect: false)
                 return
             }
             if let expected = defaults.data(forKey: "boundDeviceID"), expected != info.deviceID {
@@ -231,7 +272,8 @@ final class BluetoothBridge: NSObject, @unchecked Sendable {
                 logger.info("answered device PING: sequence=\(frame.sequence)")
                 return
             }
-            if (frame.type == .settingsState || frame.type == .wallpaperResult ||
+            if (frame.type == .settingsState || frame.type == .networkState ||
+                frame.type == .wallpaperResult ||
                 frame.type == .error),
                let request = pendingRequests.removeValue(forKey: frame.sequence) {
                 request.timeout.cancel()
@@ -293,7 +335,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         logger.info("central state changed: \(central.state.rawValue)")
         if central.state == .poweredOn {
-            scan()
+            discoverTarget()
         } else {
             setReady(false)
             update { $0.state = "Bluetooth \(central.state.rawValue)" }
@@ -323,7 +365,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
         let message = error?.localizedDescription ?? "connection failed"
         update { $0.lastError = message }
         logger.error("connection failed: \(message, privacy: .public)")
-        if shouldReconnect { scan() }
+        if shouldReconnect { discoverTarget() }
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
@@ -340,7 +382,7 @@ extension BluetoothBridge: CBCentralManagerDelegate {
         }
         logger.info("disconnected: reconnecting=\(isReconnecting) error=\(error?.localizedDescription ?? "none", privacy: .public)")
         if shouldReconnect {
-            queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.scan() }
+            queue.asyncAfter(deadline: .now() + 1) { [weak self] in self?.discoverTarget() }
         }
     }
 }
@@ -452,7 +494,7 @@ extension BluetoothBridge: CBPeripheralDelegate {
         stream.send(BridgeFrame(
             type: .hello,
             sequence: 0,
-            payload: deviceID + Data([0x05, 0x00]) + nonce
+            payload: deviceID + Data([0x05, 0x00]) + nonce + Data([role.rawValue])
         ))
     }
 

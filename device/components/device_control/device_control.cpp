@@ -12,6 +12,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "wallpaper_service.hpp"
+#include "wifi_link.h"
 
 namespace bajji {
 namespace {
@@ -101,6 +102,30 @@ void send_wallpaper(std::uint16_t sequence, std::uint8_t request_type, Status re
     ble_link_send(&response);
 }
 
+void send_network(std::uint16_t sequence, Status result) {
+    const wifi_link_status_t wifi = wifi_link_snapshot();
+    wifi_network_link_state_t link_state = wifi.network_state;
+    if (wifi.mode == WIFI_NETWORK_VPN) {
+        const ble_link_status_t link = ble_link_snapshot();
+        link_state = link.bridge_ready && link.data_role ? WIFI_NETWORK_LINK_CONNECTED
+                                                        : WIFI_NETWORK_LINK_CONNECTING;
+    }
+    const std::size_t ssid_length = strnlen(wifi.network_ssid, 32);
+    bridge_frame_t response{};
+    response.type = BRIDGE_TYPE_NETWORK_STATE;
+    response.sequence = sequence;
+    response.payload_len = static_cast<std::uint16_t>(10U + ssid_length);
+    response.payload[0] = static_cast<std::uint8_t>(result);
+    response.payload[1] = WIFI_PROVISION_VERSION;
+    response.payload[2] = static_cast<std::uint8_t>(wifi.mode);
+    response.payload[3] = static_cast<std::uint8_t>(link_state);
+    response.payload[4] = static_cast<std::uint8_t>(wifi.rssi);
+    write_u32(response.payload + 5, static_cast<std::uint32_t>(wifi.last_error));
+    response.payload[9] = static_cast<std::uint8_t>(ssid_length);
+    memcpy(response.payload + 10, wifi.network_ssid, ssid_length);
+    ble_link_send(&response);
+}
+
 void handle_settings(const bridge_frame_t& frame) {
     if (frame.type == BRIDGE_TYPE_SETTINGS_GET) {
         send_settings(frame.sequence, Status::success);
@@ -118,6 +143,23 @@ void handle_settings(const bridge_frame_t& frame) {
     esp_err_t result = wallpaper_apply_parameters(static_cast<DisplayMode>(mode), minutes);
     if (result == ESP_OK) result = BoardHal::instance().set_brightness(brightness);
     send_settings(frame.sequence, status_for(result));
+}
+
+void handle_network(const bridge_frame_t& frame) {
+    if (frame.type == BRIDGE_TYPE_NETWORK_GET) {
+        send_network(frame.sequence, Status::success);
+        return;
+    }
+    wifi_network_mode_t mode;
+    wifi_provision_credentials_t credentials{};
+    if (!wifi_network_set_decode(frame.payload, frame.payload_len, &mode, &credentials)) {
+        send_network(frame.sequence, Status::invalid_argument);
+        return;
+    }
+    const esp_err_t result = wifi_link_set_network(
+        mode, mode == WIFI_NETWORK_MANUAL ? &credentials : nullptr);
+    memset(&credentials, 0, sizeof(credentials));
+    send_network(frame.sequence, status_for(result));
 }
 
 void handle_wallpaper(const bridge_frame_t& frame) {
@@ -160,6 +202,9 @@ void worker(void*) {
         } else if (message.frame.type == BRIDGE_TYPE_SETTINGS_GET ||
                    message.frame.type == BRIDGE_TYPE_SETTINGS_SET) {
             handle_settings(message.frame);
+        } else if (message.frame.type == BRIDGE_TYPE_NETWORK_GET ||
+                   message.frame.type == BRIDGE_TYPE_NETWORK_SET) {
+            handle_network(message.frame);
         } else {
             handle_wallpaper(message.frame);
         }
@@ -175,6 +220,10 @@ void send_busy(const bridge_frame_t& request) {
         response.payload[0] = static_cast<std::uint8_t>(Status::busy);
         response.payload[1] = kSettingsVersion;
         response.payload[2] = response.payload[3] = response.payload[4] = response.payload[5] = 0;
+    } else if (request.type == BRIDGE_TYPE_NETWORK_GET ||
+               request.type == BRIDGE_TYPE_NETWORK_SET) {
+        send_network(request.sequence, Status::busy);
+        return;
     } else {
         response.type = BRIDGE_TYPE_WALLPAPER_RESULT;
         response.payload_len = 6;

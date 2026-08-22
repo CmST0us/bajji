@@ -156,7 +156,7 @@ static int bridge_info_read(uint16_t conn, uint16_t attribute,
     if (ble_gap_conn_find(conn, &desc) != 0 || !desc.sec_state.encrypted || !peer_allowed(conn)) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-    uint8_t info[22] = {1, 0x1f, (uint8_t)(BAJJI_BRIDGE_PSM >> 8U), (uint8_t)BAJJI_BRIDGE_PSM,
+    uint8_t info[22] = {1, 0x7f, (uint8_t)(BAJJI_BRIDGE_PSM >> 8U), (uint8_t)BAJJI_BRIDGE_PSM,
                         (uint8_t)(BRIDGE_MAX_PAYLOAD >> 8U), (uint8_t)BRIDGE_MAX_PAYLOAD};
     memcpy(info + 6, device_id, sizeof(device_id));
     return os_mbuf_append(context->om, info, sizeof(info)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -424,16 +424,17 @@ esp_err_t ble_link_send(const bridge_frame_t* frame) {
     return ESP_OK;
 }
 
-static void set_bridge_ready(bool ready) {
+static void set_bridge_ready(bool ready, bool data_role) {
     ble_link_ready_handler_t callback;
     void* context;
     portENTER_CRITICAL(&status_lock);
     const bool changed = status.bridge_ready != ready;
     status.bridge_ready = ready;
+    status.data_role = ready && data_role;
     callback = ready_handler;
     context = handler_context;
     portEXIT_CRITICAL(&status_lock);
-    if (changed && callback) callback(ready, context);
+    if (changed && callback) callback(ready, ready && data_role, context);
 }
 
 static void respond(const bridge_frame_t* received) {
@@ -448,7 +449,9 @@ static void respond(const bridge_frame_t* received) {
         response_frame.payload[0] = (uint8_t)(accepted_mtu >> 8U);
         response_frame.payload[1] = (uint8_t)accepted_mtu;
         memcpy(response_frame.payload + 2, received->payload + 18, 4);
-        response_frame.payload[6] = valid_id ? 0 : 1;
+        const bool valid_role = received->payload_len == 22 ||
+                                received->payload[22] <= BRIDGE_HELLO_ROLE_CONTROL_ONLY;
+        response_frame.payload[6] = !valid_id ? 1 : (!valid_role ? 2 : 0);
     } else if (received->type == BRIDGE_TYPE_PING) {
         response_frame = *received;
         response_frame.type = BRIDGE_TYPE_PONG;
@@ -473,13 +476,17 @@ static void respond(const bridge_frame_t* received) {
         void* context;
         portENTER_CRITICAL(&status_lock);
         const bool ready = status.bridge_ready;
+        const bool data_role = status.data_role;
         callback = frame_handler;
         context = handler_context;
         portEXIT_CRITICAL(&status_lock);
         if (ready && callback &&
-            (received->type == BRIDGE_TYPE_IPV4 || received->type == BRIDGE_TYPE_TIME_SYNC ||
+            ((received->type == BRIDGE_TYPE_IPV4 && data_role) ||
+             received->type == BRIDGE_TYPE_TIME_SYNC ||
              received->type == BRIDGE_TYPE_SETTINGS_GET ||
              received->type == BRIDGE_TYPE_SETTINGS_SET ||
+             received->type == BRIDGE_TYPE_NETWORK_GET ||
+             received->type == BRIDGE_TYPE_NETWORK_SET ||
              received->type == BRIDGE_TYPE_WALLPAPER_BEGIN ||
              received->type == BRIDGE_TYPE_WALLPAPER_CHUNK ||
              received->type == BRIDGE_TYPE_WALLPAPER_COMMIT ||
@@ -490,7 +497,9 @@ static void respond(const bridge_frame_t* received) {
     }
     if (ble_link_send(&response_frame) == ESP_OK && received->type == BRIDGE_TYPE_HELLO &&
         response_frame.payload[6] == 0) {
-        set_bridge_ready(true);
+        const bool data_role = received->payload_len == 22 ||
+                               received->payload[22] == BRIDGE_HELLO_ROLE_DATA;
+        set_bridge_ready(true, data_role);
     }
 }
 
@@ -536,7 +545,7 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             }
             coc_channel = event->connect.chan;
             bridge_parser_reset(&parser);
-            set_bridge_ready(false);
+            set_bridge_ready(false, false);
             struct ble_l2cap_chan_info info;
             if (ble_l2cap_get_chan_info(coc_channel, &info) == 0) {
                 coc_tx_mtu = info.peer_coc_mtu;
@@ -606,7 +615,7 @@ static int l2cap_event(struct ble_l2cap_event* event, void* argument) {
             if (event->tx_unstalled.status == 0) drain_tx();
             return 0;
         case BLE_L2CAP_EVENT_COC_DISCONNECTED:
-            set_bridge_ready(false);
+            set_bridge_ready(false, false);
             coc_channel = NULL;
             coc_tx_mtu = 0;
             tx_stalled = false;
@@ -657,7 +666,7 @@ static int gap_event(struct ble_gap_event* event, void* argument) {
             return 0;
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(tag, "BLE disconnected: reason=%d", event->disconnect.reason);
-            set_bridge_ready(false);
+            set_bridge_ready(false, false);
             connection_handle = BLE_HS_CONN_HANDLE_NONE;
             coc_channel = NULL;
             coc_tx_mtu = 0;

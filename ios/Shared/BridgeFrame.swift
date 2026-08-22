@@ -26,6 +26,9 @@ struct BridgeFrame: Equatable, Sendable {
         case settingsGet = 0x31
         case settingsSet = 0x32
         case settingsState = 0x33
+        case networkGet = 0x34
+        case networkSet = 0x35
+        case networkState = 0x36
         case wallpaperBegin = 0x40
         case wallpaperChunk = 0x41
         case wallpaperCommit = 0x42
@@ -35,13 +38,16 @@ struct BridgeFrame: Equatable, Sendable {
 
         func accepts(length: Int) -> Bool {
             switch self {
-            case .hello: length == 22
+            case .hello: length == 22 || length == 23
             case .helloAck: length == 7
             case .ipv4: (20...BridgeFrame.maximumPayload).contains(length)
             case .ping, .pong, .timeSync: length == 8
-            case .clearBond, .settingsGet, .wallpaperCommit, .wallpaperCancel: length == 0
+            case .clearBond, .settingsGet, .networkGet,
+                 .wallpaperCommit, .wallpaperCancel: length == 0
             case .settingsSet: length == 5
             case .settingsState: length == 6
+            case .networkSet: (2...100).contains(length)
+            case .networkState: (10...42).contains(length)
             case .wallpaperBegin: length == 10
             case .wallpaperChunk: (5...BridgeFrame.maximumPayload).contains(length)
             case .wallpaperResult: length == 6
@@ -52,6 +58,7 @@ struct BridgeFrame: Equatable, Sendable {
         var controlResponse: Kind? {
             switch self {
             case .settingsGet, .settingsSet: .settingsState
+            case .networkGet, .networkSet: .networkState
             case .wallpaperBegin, .wallpaperChunk, .wallpaperCommit, .wallpaperCancel:
                 .wallpaperResult
             default: nil

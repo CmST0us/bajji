@@ -15,7 +15,7 @@ Types and payloads:
 
 | Type | Name | Payload |
 |---:|---|---|
-| `01` | HELLO | 16-byte Device ID, 2-byte MTU, 4-byte session nonce |
+| `01` | HELLO | 16-byte Device ID, 2-byte MTU, 4-byte session nonce, optional 1-byte role |
 | `02` | HELLO_ACK | 2-byte accepted MTU, 4-byte echoed nonce, 1-byte status |
 | `10` | IPV4 | One IPv4 packet, 20–1280 bytes |
 | `20` | PING | 8-byte monotonic timestamp |
@@ -25,6 +25,9 @@ Types and payloads:
 | `31` | SETTINGS_GET | Empty |
 | `32` | SETTINGS_SET | 1-byte version, 1-byte brightness, 1-byte display mode, 2-byte auto-refresh minutes |
 | `33` | SETTINGS_STATE | 1-byte status followed by the 5-byte SETTINGS_SET payload |
+| `34` | NETWORK_GET | Empty |
+| `35` | NETWORK_SET | Version and mode, followed by manual credentials when required |
+| `36` | NETWORK_STATE | Status, version, mode, link state, RSSI, error, and SSID |
 | `40` | WALLPAPER_BEGIN | 1-byte version, 1-byte format, 4-byte total size, 4-byte CRC32 |
 | `41` | WALLPAPER_CHUNK | 4-byte offset followed by 1–1276 bytes |
 | `42` | WALLPAPER_COMMIT | Empty |
@@ -39,6 +42,11 @@ already ordered, reliable, and protected by a link CRC.
 
 Each direction queues no more than 32 complete frames. CoC MTU is at least
 1536. IPv4 MTU is 1280.
+
+The original 22-byte `HELLO` remains a data-role handshake. A 23-byte `HELLO`
+uses byte 22 to declare data role `00` or control-only role `01`. A control-only
+CoC can carry settings, network control, time synchronization, and wallpaper
+messages, but the Device must never attach it to the IPv4 bridge.
 
 ## Device settings
 
@@ -65,6 +73,21 @@ decoder-budget checks. The temporary file then atomically replaces the current
 cache. Cancellation, disconnection, or any failed commit deletes only the
 temporary file, leaving the current wallpaper intact.
 
+## Network selection
+
+Network mode is mutually exclusive and persists on the Device: unset `00`,
+manual Wi-Fi `01`, shared iPhone Wi-Fi `02`, or VPN `03`. `NETWORK_SET` begins
+with version `01` and the mode. Shared and VPN payloads end after those two
+bytes. Manual Wi-Fi appends security, SSID length, password length, SSID bytes,
+and password bytes using the security values and limits from Wi-Fi provisioning
+below. Passwords are never returned by the Device.
+
+`NETWORK_STATE` begins with a request status byte followed by version `01`, the
+selected mode, link state, signed RSSI byte, signed 32-bit error code, SSID
+length, and 0–32 SSID bytes. Link state is disabled `00`, unconfigured `01`,
+awaiting credentials `02`, connecting `03`, connected `04`, or retrying `05`.
+The response sequence matches the request sequence.
+
 ## BLE discovery
 
 - Primary service UUID: `6f8f8db0-9c86-4ac5-a854-3a9e2f20b321`
@@ -73,7 +96,8 @@ temporary file, leaving the current wallpaper intact.
 
 BridgeInfo is readable only on the encrypted bonded link and is exactly 22
 bytes: protocol version, capability bits (`0x01` IPv4, `0x02` TCP, `0x04` UDP,
-`0x08` device settings, `0x10` wallpaper transfer), big-endian
+`0x08` device settings, `0x10` wallpaper transfer, `0x20` network control,
+`0x40` control-only CoC), big-endian
 PSM, big-endian maximum payload, then the stable 16-byte Device ID.
 
 ## Wi-Fi provisioning
@@ -90,7 +114,9 @@ The encrypted, bonded GATT service also exposes writable characteristic
 | 4 | variable | SSID bytes, then UTF-8 password bytes |
 
 The write is rejected unless the LE link uses Secure Connections, is bonded to
-the saved peer, and carries a valid credential length. The device stores the
-accepted station configuration through ESP-IDF and immediately attempts Wi-Fi.
-Wi-Fi is the default route while it has an address; otherwise the BLE IP bridge
-is the default route.
+the saved peer, and carries a valid credential length. The device accepts this
+write only while shared mode is awaiting credentials, or while migrating a
+legacy unset configuration. It stores the accepted station configuration and
+attempts Wi-Fi without changing to an unselected upstream. Captive Portal
+success selects manual mode. Manual and shared modes use only Wi-Fi; VPN mode
+stops the station and uses only a data-role CoC.

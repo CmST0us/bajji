@@ -20,6 +20,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     override func startTunnel(options _: [String: NSObject]?,
                               completionHandler: @escaping (Error?) -> Void) {
         let completion = TunnelStartCompletion(completionHandler)
+        guard let rawIdentifier = BajjiSharedSettings.defaults.string(
+            forKey: BajjiSharedSettings.recentBluetoothIdentifierKey
+        ), let identifier = UUID(uuidString: rawIdentifier) else {
+            completion.call(NSError(
+                domain: "com.eric3u.bajji.PacketTunnel", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No uniquely selected StopWatch is available."]
+            ))
+            return
+        }
         stateLock.withLock { stopping = false }
         logger.info("starting tunnel")
 
@@ -39,7 +48,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
                 completion.call(error)
                 return
             }
-            let bridge = BluetoothBridge()
+            let bridge = BluetoothBridge(role: .data, targetIdentifier: identifier)
             self.bridge = bridge
             self.configure(bridge)
             do {

@@ -36,14 +36,15 @@ extern "C" void app_main() {
     }
     ble_link_set_handlers(
         [](const bridge_frame_t* frame, void*) {
-            if (frame->type == BRIDGE_TYPE_IPV4 || frame->type == BRIDGE_TYPE_TIME_SYNC) {
+            if (frame->type == BRIDGE_TYPE_TIME_SYNC ||
+                (frame->type == BRIDGE_TYPE_IPV4 && wifi_link_phone_upstream_allowed())) {
                 ip_bridge_receive(frame);
             } else {
                 bajji::device_control_receive(frame);
             }
         },
-        [](bool ready, void*) {
-            ip_bridge_set_link(ready);
+        [](bool ready, bool data_role, void*) {
+            ip_bridge_set_link(ready && data_role && wifi_link_phone_upstream_allowed());
             bajji::device_control_set_ready(ready);
         }, NULL);
     ble_link_set_provision_handler(
@@ -92,6 +93,8 @@ extern "C" void app_main() {
         const ble_link_status_t link = ble_link_snapshot();
         const ip_bridge_status_t ip = ip_bridge_snapshot();
         const wifi_link_status_t wifi = wifi_link_snapshot();
+        ip_bridge_set_link(link.bridge_ready && link.data_role &&
+                           wifi.mode == WIFI_NETWORK_VPN);
         const bool online = (wifi.connected || ip.link_up) && ip.time_valid;
         bajji::WallpaperStatus wallpaper = bajji::wallpaper_snapshot();
         if (online != wallpaper.online) {

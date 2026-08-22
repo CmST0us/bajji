@@ -25,6 +25,7 @@
 #include "freertos/task.h"
 #include "ip_bridge.h"
 #include "lwip/inet.h"
+#include "nvs.h"
 #include "wifi_provision.h"
 #include "wifi_portal_protocol.h"
 
@@ -38,6 +39,7 @@ enum {
 
 typedef enum {
     WIFI_COMMAND_PROVISION,
+    WIFI_COMMAND_NETWORK_SET,
     WIFI_COMMAND_PORTAL_START,
     WIFI_COMMAND_PORTAL_STOP,
     WIFI_COMMAND_PORTAL_CONNECT,
@@ -47,6 +49,7 @@ typedef enum {
 
 typedef struct {
     wifi_command_type_t type;
+    wifi_network_mode_t mode;
     wifi_provision_credentials_t credentials;
     int32_t error;
 } wifi_command_t;
@@ -76,6 +79,35 @@ static volatile bool portal_dns_running;
 static int portal_dns_socket = -1;
 static SemaphoreHandle_t portal_dns_stopped;
 static TaskHandle_t portal_dns_task_handle;
+
+static void stop_timer(esp_timer_handle_t timer);
+static void stop_portal(void);
+
+static esp_err_t save_network_mode(wifi_network_mode_t mode) {
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open("bajji_wifi", NVS_READWRITE, &handle);
+    if (result != ESP_OK) return result;
+    result = nvs_set_u8(handle, "mode", (uint8_t)mode);
+    if (result == ESP_OK) result = nvs_commit(handle);
+    nvs_close(handle);
+    return result;
+}
+
+static esp_err_t load_network_mode(bool has_saved_config, wifi_network_mode_t* mode) {
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open("bajji_wifi", NVS_READWRITE, &handle);
+    if (result != ESP_OK) return result;
+    uint8_t stored = WIFI_NETWORK_UNSET;
+    result = nvs_get_u8(handle, "mode", &stored);
+    if (result == ESP_ERR_NVS_NOT_FOUND || stored > WIFI_NETWORK_VPN) {
+        stored = has_saved_config ? WIFI_NETWORK_MANUAL : WIFI_NETWORK_UNSET;
+        result = nvs_set_u8(handle, "mode", stored);
+        if (result == ESP_OK) result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (result == ESP_OK) *mode = (wifi_network_mode_t)stored;
+    return result;
+}
 
 static const char portal_html_before_token[] =
     "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
@@ -449,6 +481,13 @@ static bool configured(void) {
     return value;
 }
 
+static wifi_network_mode_t selected_mode(void) {
+    portENTER_CRITICAL(&status_lock);
+    const wifi_network_mode_t mode = status.mode;
+    portEXIT_CRITICAL(&status_lock);
+    return mode;
+}
+
 static const char* security_name(wifi_provision_security_t security) {
     switch (security) {
         case WIFI_PROVISION_OPEN: return "open";
@@ -478,10 +517,25 @@ static const char* disconnect_reason_name(uint8_t reason) {
 }
 
 static void request_connect(const char* source) {
-    if (!configured()) {
-        ESP_LOGI(tag, "Wi-Fi connect skipped: source=%s configured=0", source);
+    const wifi_network_mode_t mode = selected_mode();
+    if (!wifi_network_mode_uses_wifi(mode) || !configured()) {
+        ESP_LOGI(tag, "Wi-Fi connect skipped: source=%s mode=%u configured=%d", source,
+                 mode, configured());
         return;
     }
+    portENTER_CRITICAL(&status_lock);
+    if (status.connected) {
+        portEXIT_CRITICAL(&status_lock);
+        ESP_LOGD(tag, "Wi-Fi connect skipped: source=%s already connected", source);
+        return;
+    }
+    if (status.network_state == WIFI_NETWORK_LINK_AWAITING_CREDENTIALS) {
+        portEXIT_CRITICAL(&status_lock);
+        ESP_LOGI(tag, "Wi-Fi connect skipped: source=%s awaiting credentials", source);
+        return;
+    }
+    status.network_state = WIFI_NETWORK_LINK_CONNECTING;
+    portEXIT_CRITICAL(&status_lock);
     const esp_err_t result = esp_wifi_connect();
     if (result == ESP_OK) {
         ESP_LOGI(tag, "Wi-Fi connect requested: source=%s", source);
@@ -491,6 +545,10 @@ static void request_connect(const char* source) {
                      esp_err_to_name(stop_result), (unsigned)stop_result);
         }
     } else {
+        portENTER_CRITICAL(&status_lock);
+        status.last_error = result;
+        status.network_state = WIFI_NETWORK_LINK_RETRYING;
+        portEXIT_CRITICAL(&status_lock);
         ESP_LOGW(tag, "Wi-Fi connect request failed: source=%s error=%s (0x%x)", source,
                  esp_err_to_name(result), (unsigned)result);
     }
@@ -503,8 +561,8 @@ static void reconnect(void* argument) {
 }
 
 static void schedule_reconnect(void) {
-    if (!configured()) {
-        ESP_LOGI(tag, "Wi-Fi reconnect not scheduled: no saved configuration");
+    if (!wifi_network_mode_uses_wifi(selected_mode()) || !configured()) {
+        ESP_LOGI(tag, "Wi-Fi reconnect not scheduled: selected mode has no station upstream");
         return;
     }
     if (esp_timer_is_active(reconnect_timer)) {
@@ -513,6 +571,9 @@ static void schedule_reconnect(void) {
     }
     const esp_err_t result = esp_timer_start_once(reconnect_timer, kReconnectDelayMs * 1000ULL);
     if (result == ESP_OK) {
+        portENTER_CRITICAL(&status_lock);
+        status.network_state = WIFI_NETWORK_LINK_RETRYING;
+        portEXIT_CRITICAL(&status_lock);
         ESP_LOGI(tag, "Wi-Fi reconnect scheduled: delay_ms=%d", kReconnectDelayMs);
     } else {
         ESP_LOGW(tag, "could not schedule reconnect: %s (0x%x)",
@@ -547,11 +608,27 @@ static wifi_config_t station_config(const wifi_provision_credentials_t* credenti
     return config;
 }
 
-static void apply_credentials(const wifi_provision_credentials_t* credentials) {
+static void apply_credentials(const wifi_provision_credentials_t* credentials,
+                              wifi_network_mode_t mode) {
     ESP_LOGI(tag, "applying Wi-Fi credentials: ssid_bytes=%u security=%s password_bytes=%u",
              credentials->ssid_length, security_name(credentials->security),
              credentials->password_length);
     wifi_config_t config = station_config(credentials);
+
+    stop_timer(reconnect_timer);
+    esp_err_t result = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (result == ESP_OK && !wifi_driver_started) {
+        result = esp_wifi_start();
+        wifi_driver_started = result == ESP_OK;
+    }
+    if (result == ESP_OK) result = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+    if (result != ESP_OK) {
+        portENTER_CRITICAL(&status_lock);
+        status.last_error = result;
+        status.network_state = WIFI_NETWORK_LINK_RETRYING;
+        portEXIT_CRITICAL(&status_lock);
+        return;
+    }
 
     const esp_err_t disconnect_result = esp_wifi_disconnect();
     if (disconnect_result == ESP_OK) {
@@ -560,7 +637,7 @@ static void apply_credentials(const wifi_provision_credentials_t* credentials) {
         ESP_LOGD(tag, "pre-provision Wi-Fi disconnect returned: %s (0x%x)",
                  esp_err_to_name(disconnect_result), (unsigned)disconnect_result);
     }
-    const esp_err_t result = esp_wifi_set_config(WIFI_IF_STA, &config);
+    result = esp_wifi_set_config(WIFI_IF_STA, &config);
     if (result != ESP_OK) {
         portENTER_CRITICAL(&status_lock);
         status.last_error = result;
@@ -570,13 +647,62 @@ static void apply_credentials(const wifi_provision_credentials_t* credentials) {
         return;
     }
     portENTER_CRITICAL(&status_lock);
+    status.mode = mode;
     status.configured = true;
+    status.connected = false;
+    status.network_state = WIFI_NETWORK_LINK_CONNECTING;
     status.last_error = ESP_OK;
+    memcpy(status.network_ssid, credentials->ssid, credentials->ssid_length);
+    status.network_ssid[credentials->ssid_length] = '\0';
     portEXIT_CRITICAL(&status_lock);
+    result = save_network_mode(mode);
+    if (result != ESP_OK) {
+        portENTER_CRITICAL(&status_lock);
+        status.last_error = result;
+        portEXIT_CRITICAL(&status_lock);
+        ESP_LOGE(tag, "could not persist network mode: %s", esp_err_to_name(result));
+        return;
+    }
     ESP_LOGI(tag, "saved Wi-Fi configuration: ssid_bytes=%u security=%s auth_threshold=%d owe=%d",
              credentials->ssid_length, security_name(credentials->security),
              config.sta.threshold.authmode, config.sta.owe_enabled);
     request_connect("provisioning");
+}
+
+static void apply_network_selection(const wifi_command_t* command) {
+    stop_portal();
+    if (command->mode == WIFI_NETWORK_MANUAL) {
+        apply_credentials(&command->credentials, WIFI_NETWORK_MANUAL);
+        return;
+    }
+
+    stop_timer(reconnect_timer);
+    ip_bridge_set_wifi_netif(station_netif, false);
+    esp_wifi_disconnect();
+    esp_err_t result = save_network_mode(command->mode);
+    if (command->mode == WIFI_NETWORK_SHARED) {
+        wifi_config_t empty = {0};
+        if (result == ESP_OK) result = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+        if (result == ESP_OK) result = esp_wifi_set_config(WIFI_IF_STA, &empty);
+    }
+    if (command->mode == WIFI_NETWORK_VPN || command->mode == WIFI_NETWORK_UNSET) {
+        const esp_err_t stop_result = wifi_driver_started ? esp_wifi_stop() : ESP_OK;
+        if (stop_result == ESP_OK) wifi_driver_started = false;
+        if (result == ESP_OK) result = stop_result;
+    }
+    portENTER_CRITICAL(&status_lock);
+    status.mode = command->mode;
+    if (command->mode == WIFI_NETWORK_SHARED) status.configured = false;
+    status.connected = false;
+    status.rssi = 0;
+    status.network_ssid[0] = '\0';
+    status.network_state = command->mode == WIFI_NETWORK_SHARED
+                               ? WIFI_NETWORK_LINK_AWAITING_CREDENTIALS
+                               : (command->mode == WIFI_NETWORK_VPN
+                                      ? WIFI_NETWORK_LINK_CONNECTING
+                                      : WIFI_NETWORK_LINK_UNCONFIGURED);
+    status.last_error = result;
+    portEXIT_CRITICAL(&status_lock);
 }
 
 static void stop_timer(esp_timer_handle_t timer) {
@@ -698,11 +824,18 @@ static void stop_portal(void) {
         esp_wifi_set_config(WIFI_IF_STA, &portal_previous_config);
         esp_wifi_set_storage(WIFI_STORAGE_FLASH);
     }
-    const esp_err_t mode_result = esp_wifi_set_mode(WIFI_MODE_STA);
+    const wifi_network_mode_t mode = selected_mode();
+    esp_err_t mode_result = ESP_OK;
     esp_err_t start_result = ESP_OK;
-    if (!wifi_driver_started) {
-        start_result = esp_wifi_start();
-        wifi_driver_started = start_result == ESP_OK;
+    if (wifi_network_mode_uses_wifi(mode)) {
+        mode_result = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (!wifi_driver_started) {
+            start_result = esp_wifi_start();
+            wifi_driver_started = start_result == ESP_OK;
+        }
+    } else if (wifi_driver_started) {
+        start_result = esp_wifi_stop();
+        if (start_result == ESP_OK) wifi_driver_started = false;
     }
     portENTER_CRITICAL(&status_lock);
     portal_services_active = false;
@@ -718,7 +851,7 @@ static void stop_portal(void) {
         status.portal_last_error = mode_result != ESP_OK ? mode_result : start_result;
         portEXIT_CRITICAL(&status_lock);
     }
-    request_connect("portal_stop");
+    if (wifi_network_mode_uses_wifi(mode)) request_connect("portal_stop");
     ESP_LOGI(tag, "Wi-Fi portal stopped: result=%s", esp_err_to_name(mode_result));
 }
 
@@ -737,7 +870,7 @@ static esp_err_t start_portal(void) {
     portal_services_active = true;
     portEXIT_CRITICAL(&status_lock);
     esp_wifi_disconnect();
-    const esp_err_t stop_result = esp_wifi_stop();
+    const esp_err_t stop_result = wifi_driver_started ? esp_wifi_stop() : ESP_OK;
     if (stop_result == ESP_OK) wifi_driver_started = false;
     if (result == ESP_OK) result = stop_result;
 
@@ -842,9 +975,22 @@ static void complete_portal_connection(void) {
         fail_portal_connection(result);
         return;
     }
+    const wifi_network_mode_t mode = wifi_network_mode_after_credentials(
+        WIFI_CREDENTIAL_SOURCE_PORTAL);
+    result = save_network_mode(mode);
+    if (result != ESP_OK) {
+        fail_portal_connection(result);
+        return;
+    }
     portENTER_CRITICAL(&status_lock);
+    status.mode = mode;
     status.configured = true;
+    status.network_state = WIFI_NETWORK_LINK_CONNECTED;
+    memcpy(status.network_ssid, portal_trial_config.sta.ssid,
+           sizeof(status.network_ssid) - 1U);
+    status.network_ssid[sizeof(status.network_ssid) - 1U] = '\0';
     portEXIT_CRITICAL(&status_lock);
+    ip_bridge_set_wifi_netif(station_netif, true);
     stop_timer(portal_timeout_timer);
     result = esp_timer_start_once(portal_close_timer,
                                   (uint64_t)kPortalSuccessSeconds * 1000000ULL);
@@ -865,7 +1011,12 @@ static void provision_worker(void* argument) {
         switch (command.type) {
             case WIFI_COMMAND_PROVISION:
                 stop_portal();
-                apply_credentials(&command.credentials);
+                apply_credentials(
+                    &command.credentials,
+                    wifi_network_mode_after_credentials(WIFI_CREDENTIAL_SOURCE_SHARED));
+                break;
+            case WIFI_COMMAND_NETWORK_SET:
+                apply_network_selection(&command);
                 break;
             case WIFI_COMMAND_PORTAL_START: start_portal(); break;
             case WIFI_COMMAND_PORTAL_STOP: stop_portal(); break;
@@ -880,7 +1031,8 @@ static void provision_worker(void* argument) {
 static void wifi_event(void* argument, esp_event_base_t base, int32_t id, void* data) {
     (void)argument;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        ESP_LOGI(tag, "Wi-Fi station started: configured=%d", configured());
+        ESP_LOGI(tag, "Wi-Fi station started: configured=%d mode=%u", configured(),
+                 selected_mode());
         if (!portal_is_active()) request_connect("station_start");
         return;
     }
@@ -900,6 +1052,9 @@ static void wifi_event(void* argument, esp_event_base_t base, int32_t id, void* 
         status.rssi = 0;
         status.reconnects++;
         status.last_error = event ? event->reason : WIFI_REASON_UNSPECIFIED;
+        if (wifi_network_mode_uses_wifi(status.mode)) {
+            status.network_state = WIFI_NETWORK_LINK_RETRYING;
+        }
         const uint32_t reconnects = status.reconnects;
         portEXIT_CRITICAL(&status_lock);
         ESP_LOGW(tag, "Wi-Fi disconnected: reason=%u (%s) rssi=%d reconnects=%" PRIu32,
@@ -940,13 +1095,23 @@ static void wifi_event(void* argument, esp_event_base_t base, int32_t id, void* 
         ESP_LOGI(tag, "Wi-Fi reconnect timer stop: result=%s (0x%x)",
                  esp_err_to_name(stop_result), (unsigned)stop_result);
     }
+    const bool portal_trial = portal_trial_is_active();
+    const wifi_network_mode_t mode = selected_mode();
+    if (!portal_trial && !wifi_network_mode_uses_wifi(mode)) {
+        ESP_LOGW(tag, "ignored stale Wi-Fi address for unselected mode=%u", mode);
+        esp_wifi_disconnect();
+        return;
+    }
     portENTER_CRITICAL(&status_lock);
     status.connected = true;
     status.rssi = access_point.rssi;
     status.last_error = ESP_OK;
+    status.network_state = WIFI_NETWORK_LINK_CONNECTED;
+    memcpy(status.network_ssid, access_point.ssid, sizeof(status.network_ssid) - 1U);
+    status.network_ssid[sizeof(status.network_ssid) - 1U] = '\0';
     portEXIT_CRITICAL(&status_lock);
-    ip_bridge_set_wifi_netif(station_netif, true);
-    if (portal_trial_is_active()) {
+    if (!portal_trial) ip_bridge_set_wifi_netif(station_netif, true);
+    if (portal_trial) {
         portENTER_CRITICAL(&status_lock);
         portal_trial_active = false;
         portEXIT_CRITICAL(&status_lock);
@@ -1069,6 +1234,27 @@ esp_err_t wifi_link_start(void) {
     status.configured = saved.sta.ssid[0] != 0;
     const bool has_saved_config = status.configured;
     portEXIT_CRITICAL(&status_lock);
+    wifi_network_mode_t mode;
+    result = load_network_mode(has_saved_config, &mode);
+    if (result != ESP_OK) {
+        ESP_LOGE(tag, "could not load network mode: %s (0x%x)",
+                 esp_err_to_name(result), (unsigned)result);
+        return result;
+    }
+    portENTER_CRITICAL(&status_lock);
+    status.mode = mode;
+    if (has_saved_config) {
+        memcpy(status.network_ssid, saved.sta.ssid, sizeof(status.network_ssid) - 1U);
+        status.network_ssid[sizeof(status.network_ssid) - 1U] = '\0';
+    }
+    status.network_state = wifi_network_mode_uses_wifi(mode) && has_saved_config
+                               ? WIFI_NETWORK_LINK_CONNECTING
+                               : (mode == WIFI_NETWORK_SHARED
+                                      ? WIFI_NETWORK_LINK_AWAITING_CREDENTIALS
+                                      : (mode == WIFI_NETWORK_VPN
+                                             ? WIFI_NETWORK_LINK_CONNECTING
+                                             : WIFI_NETWORK_LINK_UNCONFIGURED));
+    portEXIT_CRITICAL(&status_lock);
     ESP_LOGI(tag, "saved Wi-Fi configuration: present=%d ssid_bytes=%zu auth_mode=%d",
              has_saved_config, strnlen((const char*)saved.sta.ssid, sizeof(saved.sta.ssid)),
              saved.sta.threshold.authmode);
@@ -1087,13 +1273,14 @@ esp_err_t wifi_link_start(void) {
         return ESP_ERR_NO_MEM;
     }
     ESP_LOGI(tag, "Wi-Fi provisioning worker ready");
-    result = esp_wifi_start();
+    if (wifi_network_mode_uses_wifi(mode) && has_saved_config) result = esp_wifi_start();
     if (result == ESP_OK) {
-        wifi_driver_started = true;
+        wifi_driver_started = wifi_network_mode_uses_wifi(mode) && has_saved_config;
         portENTER_CRITICAL(&status_lock);
         status.initialized = true;
         portEXIT_CRITICAL(&status_lock);
-        ESP_LOGI(tag, "Wi-Fi station link initialized");
+        ESP_LOGI(tag, "Wi-Fi link initialized: mode=%u station_started=%d", mode,
+                 wifi_driver_started);
     } else {
         ESP_LOGE(tag, "could not start Wi-Fi station: %s (0x%x)",
                  esp_err_to_name(result), (unsigned)result);
@@ -1109,6 +1296,16 @@ esp_err_t wifi_link_provision(const uint8_t* payload, size_t length) {
                  length, payload && length > 0 ? payload[0] : 0,
                  payload && length > 1 ? payload[1] : 0);
         return ESP_ERR_INVALID_ARG;
+    }
+    portENTER_CRITICAL(&status_lock);
+    const wifi_network_mode_t mode = status.mode;
+    const bool awaiting = status.network_state == WIFI_NETWORK_LINK_AWAITING_CREDENTIALS;
+    portEXIT_CRITICAL(&status_lock);
+    if (!wifi_network_shared_write_allowed(mode, awaiting)) {
+        memset(&credentials, 0, sizeof(credentials));
+        ESP_LOGW(tag, "ignored background Wi-Fi share for selected mode=%u awaiting=%d",
+                 mode, awaiting);
+        return ESP_ERR_INVALID_STATE;
     }
     ESP_LOGI(tag, "decoded Wi-Fi provisioning payload: ssid_bytes=%u security=%s password_bytes=%u",
              credentials.ssid_length, security_name(credentials.security),
@@ -1131,6 +1328,63 @@ esp_err_t wifi_link_provision(const uint8_t* payload, size_t length) {
     memset(&command.credentials, 0, sizeof(command.credentials));
     ESP_LOGI(tag, "Wi-Fi provisioning queue result: queued=%d", queued == pdTRUE);
     return queued == pdTRUE ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t wifi_link_set_network(wifi_network_mode_t mode,
+                                const wifi_provision_credentials_t* credentials) {
+    if (!provision_queue || mode > WIFI_NETWORK_VPN ||
+        (mode == WIFI_NETWORK_MANUAL && !credentials)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (mode == WIFI_NETWORK_MANUAL &&
+        ((credentials->security != WIFI_PROVISION_OPEN &&
+          credentials->security != WIFI_PROVISION_WPA2 &&
+          credentials->security != WIFI_PROVISION_WPA3) ||
+         credentials->ssid_length == 0 ||
+         credentials->ssid_length > WIFI_PROVISION_MAX_SSID ||
+         memchr(credentials->ssid, 0, credentials->ssid_length) ||
+         memchr(credentials->password, 0, credentials->password_length) ||
+         !wifi_provision_credentials_valid(credentials->security,
+                                           credentials->password_length))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    wifi_command_t command = {.type = WIFI_COMMAND_NETWORK_SET, .mode = mode};
+    if (credentials) command.credentials = *credentials;
+
+    portENTER_CRITICAL(&status_lock);
+    const wifi_link_status_t previous = status;
+    status.mode = mode;
+    status.connected = false;
+    status.rssi = 0;
+    if (mode == WIFI_NETWORK_MANUAL) {
+        status.configured = false;
+        status.network_state = WIFI_NETWORK_LINK_CONNECTING;
+        memcpy(status.network_ssid, credentials->ssid, credentials->ssid_length);
+        status.network_ssid[credentials->ssid_length] = '\0';
+    } else {
+        if (mode == WIFI_NETWORK_SHARED) status.configured = false;
+        status.network_ssid[0] = '\0';
+        status.network_state = mode == WIFI_NETWORK_SHARED
+                                   ? WIFI_NETWORK_LINK_AWAITING_CREDENTIALS
+                                   : (mode == WIFI_NETWORK_VPN
+                                          ? WIFI_NETWORK_LINK_CONNECTING
+                                          : WIFI_NETWORK_LINK_UNCONFIGURED);
+    }
+    portEXIT_CRITICAL(&status_lock);
+    ip_bridge_set_wifi_netif(station_netif, false);
+    if (enqueue_command(&command) != pdTRUE) {
+        portENTER_CRITICAL(&status_lock);
+        status = previous;
+        portEXIT_CRITICAL(&status_lock);
+        memset(&command.credentials, 0, sizeof(command.credentials));
+        return ESP_ERR_NO_MEM;
+    }
+    memset(&command.credentials, 0, sizeof(command.credentials));
+    return ESP_OK;
+}
+
+bool wifi_link_phone_upstream_allowed(void) {
+    return wifi_network_mode_uses_phone(selected_mode());
 }
 
 esp_err_t wifi_link_start_portal(void) {

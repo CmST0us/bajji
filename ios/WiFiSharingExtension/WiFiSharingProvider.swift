@@ -29,6 +29,12 @@ final class WiFiSharingProvider: @unchecked Sendable {
                 let provider = try await WINetworkSharingProvider(for: accessory)
                 logger.info("listening for Wi-Fi Infrastructure network events")
                 for try await event in provider.networkEvents() {
+                    guard BajjiSharedSettings.defaults.integer(
+                        forKey: BajjiSharedSettings.networkModeKey
+                    ) == Int(DeviceNetworkMode.shared.rawValue) else {
+                        logger.info("ignored Wi-Fi event because shared mode is not selected")
+                        continue
+                    }
                     logger.info("received Wi-Fi network event: app_requested=\(event.appRequestedSharing) new_network=\(event.newShareableNetworkAvailable) networks=\(event.networks.count)")
                     guard !Task.isCancelled else {
                         logger.info("Wi-Fi sharing provider task cancelled while handling event")

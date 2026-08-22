@@ -132,6 +132,11 @@ static void control_frames_and_crc(void) {
         {.type = BRIDGE_TYPE_SETTINGS_GET, .payload_len = 0},
         {.type = BRIDGE_TYPE_SETTINGS_SET, .payload_len = 5},
         {.type = BRIDGE_TYPE_SETTINGS_STATE, .payload_len = 6},
+        {.type = BRIDGE_TYPE_NETWORK_GET, .payload_len = 0},
+        {.type = BRIDGE_TYPE_NETWORK_SET, .payload_len = 2},
+        {.type = BRIDGE_TYPE_NETWORK_SET, .payload_len = 100},
+        {.type = BRIDGE_TYPE_NETWORK_STATE, .payload_len = 10},
+        {.type = BRIDGE_TYPE_NETWORK_STATE, .payload_len = 42},
         {.type = BRIDGE_TYPE_WALLPAPER_BEGIN, .payload_len = 10},
         {.type = BRIDGE_TYPE_WALLPAPER_CHUNK, .payload_len = 5},
         {.type = BRIDGE_TYPE_WALLPAPER_COMMIT, .payload_len = 0},
@@ -149,12 +154,29 @@ static void control_frames_and_crc(void) {
     invalid.type = BRIDGE_TYPE_SETTINGS_SET;
     invalid.payload_len = 4;
     assert(bridge_encode(&invalid, encoded, sizeof(encoded)) == 0);
+    invalid.type = BRIDGE_TYPE_NETWORK_SET;
+    invalid.payload_len = 1;
+    assert(bridge_encode(&invalid, encoded, sizeof(encoded)) == 0);
+    invalid.type = BRIDGE_TYPE_NETWORK_STATE;
+    invalid.payload_len = 43;
+    assert(bridge_encode(&invalid, encoded, sizeof(encoded)) == 0);
 
     static const uint8_t vector[] = "123456789";
     uint32_t state = bridge_crc32_update(BRIDGE_CRC32_INITIAL, vector, 4);
     state = bridge_crc32_update(state, vector + 4, 5);
     assert(bridge_crc32_finish(state) == 0xcbf43926U);
     assert(bridge_crc32(vector, 9) == 0xcbf43926U);
+}
+
+static void hello_roles(void) {
+    uint8_t encoded[BRIDGE_MAX_FRAME_SIZE];
+    bridge_frame_t hello = {.type = BRIDGE_TYPE_HELLO, .payload_len = 22};
+    assert(bridge_encode(&hello, encoded, sizeof(encoded)) == BRIDGE_HEADER_SIZE + 22);
+    hello.payload_len = 23;
+    hello.payload[22] = BRIDGE_HELLO_ROLE_CONTROL_ONLY;
+    assert(bridge_encode(&hello, encoded, sizeof(encoded)) == BRIDGE_HEADER_SIZE + 23);
+    hello.payload_len = 24;
+    assert(bridge_encode(&hello, encoded, sizeof(encoded)) == 0);
 }
 
 int main(void) {
@@ -167,5 +189,6 @@ int main(void) {
     clear_bond_frame();
     time_sync_frame();
     control_frames_and_crc();
+    hello_roles();
     return 0;
 }

@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-08-22 · 用户自选网络、control-only BLE 与方形 PNG 已实现，待真机验收
+
+本次变更已协调修改协议、固件、iOS 与 Figma。Bridge v1 新增 23-byte HELLO role（`data` / `control-only`）、network-control/control-only capability，以及 `NETWORK_GET/SET/STATE`；固件在 NVS 持久化 `unset/manual/shared/vpn`，旧 Wi-Fi 配置迁移为 manual。manual/shared 只走 STA，vpn 停止 STA 并只允许 data-role CoC 上行；Portal 成功归入 manual，后台 GATT 凭据只在 shared 等待状态或旧版 unset 迁移入口生效。控制 CoC 与 IP bridge 已拆开，未启用 VPN 也能设置参数和传壁纸。
+
+iOS 新增统一 `DeviceConnectionManager`：按 ASK 最近明确添加的蓝牙 UUID 自动连接，不在多条记录中任取；非 VPN 使用 control-only CoC，VPN 活动时通过 Packet Tunnel 控制且不并存。`TunnelManager` 订阅 `NEVPNStatusDidChange`，VPN 选择会先写设备模式再安装/启动并开启 on-demand，改选 Wi-Fi 会关闭 Tunnel。手动密码只在表单内存中存在；共享扩展只在 shared 模式写凭据。
+
+自定义图片现固定 aspect-fill 方形裁切、1–4× 缩放与有界偏移，原生 renderer 输出 scale 1、opaque、标准色域的 468×468 PNG；传输 BEGIN 使用 PNG format，保留 3 MB/CRC/临时文件/原子替换。旧 JPEG 仍可读，下次编辑保存 PNG 后删除旧缓存。`WallpaperRendererTests` 用合成四色角和横向双色图覆盖 PNG 签名、尺寸、四角、偏移映射；测试目标已在 iPhoneOS `build-for-testing` 中编译，尚未在真机执行。
+
+Figma `03 App UX`（状态模型 `173:387`、Device `194:11`、Images `202:47`）与 `04 Hi-Fi UI`（`228:4`、`228:5`、`228:7`）已同步为三项单选、自动控制连接四态、手动/共享/VPN 状态、方形 PNG 与 Dark Mode；UX 三项选择已有原型连线。QA 确认目标屏幕均为 402×874、交互目标 ≥44 pt、SF Pro、无 placeholder；已删除旧 `I03b · Crop Preview Fit`，可从 Figma 版本历史恢复。
+
+验证通过：device host tests、Swift 13/13、Plist、`git diff --check`、iPhoneOS Debug build、iPhoneOS `build-for-testing`、ESP-IDF 6.0 全量 build；固件 `0x25bd20`，app 分区余量 61%，未改分区表。**尚需真机验收冷启动自动连接、三模式重启持久化、Wi-Fi Infrastructure 取消/受限、VPN 状态实时刷新、App 关闭时 Portal→manual，以及 PNG 圆屏清晰度。**
+
 ## 2026-08-22 · SoftAP 改为免密码并在设备页显示入网二维码
 
 提交 `343304d` 将配网 SoftAP 改为 `WIFI_AUTH_OPEN`，删除设备运行状态与 UI 中的热点密码；热点开启页新增 164 px、带静区的 LVGL 二维码，内容为 `WIFI:T:nopass;S:<SSID>;;`，并保留 SSID、`bajji.setup`、倒计时和停止按钮。新文案已同步到 16/20/24 px 字体子集，`CONFIG_LV_USE_QRCODE=y` 已写入 `sdkconfig.defaults` 并同步生成配置。

@@ -25,6 +25,7 @@ final class AccessoryManager: NSObject {
     var isBusy = false
     var isPairing = false
     var wifiSharingState: WiFiSharingState = .notShared
+    var selectedBluetoothIdentifier: UUID?
 
     private let logger = Logger(subsystem: "com.eric3u.bajji", category: "AccessoryManager")
     private let session = ASAccessorySession()
@@ -85,8 +86,10 @@ final class AccessoryManager: NSObject {
         logger.info("removing accessory from AccessorySetupKit session")
         do {
             try await session.removeAccessory(accessory)
-            save(nil)
-            detail = "已解除 StopWatch；再次使用时请重新添加。"
+            restoreSelection()
+            if session.accessories.isEmpty {
+                detail = "已解除 StopWatch；再次使用时请重新添加。"
+            }
         } catch {
             logger.error("accessory removal failed: \(error.localizedDescription, privacy: .public)")
             detail = error.localizedDescription
@@ -141,20 +144,50 @@ final class AccessoryManager: NSObject {
         logger.info("AccessorySetupKit event: type=\(eventType, privacy: .public) session_accessories=\(self.session.accessories.count) event_accessory=\(event.accessory != nil)")
         switch event.eventType {
         case .activated:
-            save(session.accessories.first)
+            restoreSelection()
         case .accessoryAdded, .accessoryChanged:
-            save(event.accessory)
+            save(event.accessory, remember: true)
         case .accessoryRemoved:
-            save(nil)
+            restoreSelection()
         default:
             break
         }
     }
 
-    private func save(_ accessory: ASAccessory?) {
+    private func restoreSelection() {
+        let candidates = session.accessories.filter { $0.bluetoothIdentifier != nil }
+        let savedIdentifier = BajjiSharedSettings.defaults.string(
+            forKey: BajjiSharedSettings.recentBluetoothIdentifierKey
+        ).flatMap(UUID.init(uuidString:))
+        if let savedIdentifier,
+           let recent = candidates.first(where: { $0.bluetoothIdentifier == savedIdentifier }) {
+            save(recent)
+        } else if candidates.count == 1 {
+            save(candidates[0], remember: true)
+        } else {
+            save(nil)
+            if candidates.count > 1 {
+                detail = "发现多个已添加的 StopWatch，无法唯一确定设备；请移除旧记录后重新添加。"
+            }
+        }
+    }
+
+    private func save(_ accessory: ASAccessory?, remember: Bool = false) {
+        let defaults = BajjiSharedSettings.defaults
+        if remember, let identifier = accessory?.bluetoothIdentifier {
+            let previous = defaults.string(forKey: BajjiSharedSettings.recentBluetoothIdentifierKey)
+            if previous != nil && previous != identifier.uuidString {
+                defaults.removeObject(forKey: "boundDeviceID")
+            }
+            defaults.set(identifier.uuidString,
+                         forKey: BajjiSharedSettings.recentBluetoothIdentifierKey)
+        } else if accessory == nil {
+            defaults.removeObject(forKey: BajjiSharedSettings.recentBluetoothIdentifierKey)
+        }
         self.accessory = accessory
         hasAccessory = accessory != nil
         status = accessory?.displayName ?? "尚未添加"
+        selectedBluetoothIdentifier = accessory?.bluetoothIdentifier
         if accessory == nil {
             wifiSharingState = .notShared
         }

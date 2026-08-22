@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "wifi_provision.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,15 @@ typedef enum {
     WIFI_PORTAL_FAILED,
 } wifi_portal_state_t;
 
+typedef enum {
+    WIFI_NETWORK_LINK_DISABLED = 0,
+    WIFI_NETWORK_LINK_UNCONFIGURED,
+    WIFI_NETWORK_LINK_AWAITING_CREDENTIALS,
+    WIFI_NETWORK_LINK_CONNECTING,
+    WIFI_NETWORK_LINK_CONNECTED,
+    WIFI_NETWORK_LINK_RETRYING,
+} wifi_network_link_state_t;
+
 typedef struct {
     bool initialized;
     bool configured;
@@ -27,6 +37,9 @@ typedef struct {
     int8_t rssi;
     uint32_t reconnects;
     int32_t last_error;
+    wifi_network_mode_t mode;
+    wifi_network_link_state_t network_state;
+    char network_ssid[33];
     wifi_portal_state_t portal_state;
     char portal_ssid[33];
     char portal_selected_ssid[33];
@@ -36,6 +49,9 @@ typedef struct {
 
 esp_err_t wifi_link_start(void);
 esp_err_t wifi_link_provision(const uint8_t* payload, size_t length);
+esp_err_t wifi_link_set_network(wifi_network_mode_t mode,
+                                const wifi_provision_credentials_t* credentials);
+bool wifi_link_phone_upstream_allowed(void);
 esp_err_t wifi_link_start_portal(void);
 esp_err_t wifi_link_stop_portal(void);
 wifi_link_status_t wifi_link_snapshot(void);

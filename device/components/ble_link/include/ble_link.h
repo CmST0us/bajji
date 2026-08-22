@@ -24,6 +24,7 @@ typedef struct {
     bool has_bond;
     bool coc_connected;
     bool bridge_ready;
+    bool data_role;
     uint32_t passkey;
     uint16_t connection_interval_units;
     uint8_t tx_phy;
@@ -44,7 +45,7 @@ typedef struct {
 } ble_link_status_t;
 
 typedef void (*ble_link_frame_handler_t)(const bridge_frame_t* frame, void* context);
-typedef void (*ble_link_ready_handler_t)(bool ready, void* context);
+typedef void (*ble_link_ready_handler_t)(bool ready, bool data_role, void* context);
 typedef esp_err_t (*ble_link_provision_handler_t)(const uint8_t* payload, size_t length,
                                                   void* context);
 

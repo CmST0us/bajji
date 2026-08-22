@@ -6,6 +6,9 @@ struct BridgeInfo: Equatable, Sendable {
     static let baseCapabilities: UInt8 = 0x07
     static let settingsCapability: UInt8 = 0x08
     static let wallpaperCapability: UInt8 = 0x10
+    static let networkControlCapability: UInt8 = 0x20
+    static let controlOnlyCapability: UInt8 = 0x40
+    static let currentCapabilities: UInt8 = 0x7F
 
     let capabilities: UInt8
     let psm: UInt16

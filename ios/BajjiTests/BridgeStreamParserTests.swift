@@ -85,6 +85,9 @@ struct BridgeStreamParserTests {
             BridgeFrame(type: .settingsGet, sequence: 1, payload: Data()),
             BridgeFrame(type: .settingsSet, sequence: 2, payload: Data(repeating: 0, count: 5)),
             BridgeFrame(type: .settingsState, sequence: 3, payload: Data(repeating: 0, count: 6)),
+            BridgeFrame(type: .networkGet, sequence: 9, payload: Data()),
+            BridgeFrame(type: .networkSet, sequence: 10, payload: Data([1, 3])),
+            BridgeFrame(type: .networkState, sequence: 11, payload: Data(repeating: 0, count: 10)),
             BridgeFrame(type: .wallpaperBegin, sequence: 4, payload: Data(repeating: 0, count: 10)),
             BridgeFrame(type: .wallpaperChunk, sequence: 5, payload: Data(repeating: 0, count: 5)),
             BridgeFrame(type: .wallpaperCommit, sequence: 6, payload: Data()),
@@ -103,6 +106,11 @@ struct BridgeStreamParserTests {
                 payload: Data(repeating: 0, count: 4)
             ).encode()
         }
+
+        #expect(try BridgeFrame(type: .hello, sequence: 0,
+                               payload: Data(repeating: 0, count: 22)).encode().count == 30)
+        #expect(try BridgeFrame(type: .hello, sequence: 0,
+                               payload: Data(repeating: 0, count: 23)).encode().count == 31)
 
         let settings = frames[1]
         #expect(try BridgeFrame.decode(settings.encode()) == settings)
