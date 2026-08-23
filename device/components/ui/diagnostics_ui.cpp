@@ -566,6 +566,8 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
     loading_state_ = nullptr;
     category_value_ = nullptr;
     type_value_ = nullptr;
+    battery_value_ = nullptr;
+    battery_percent_ = UINT8_MAX;
     pairing_value_ = nullptr;
     wifi_value_ = nullptr;
     brightness_value_ = nullptr;
@@ -694,6 +696,9 @@ void ProductUI::show(Page next, const WallpaperStatus& wallpaper, std::uint32_t 
             }
             back_control(root_, back_clicked, this);
             settings_title(root_, "设备设置", 40);
+            battery_value_ = label(root_, "", 324, 47, 56, kBodyFont, kSecondary,
+                                   LV_TEXT_ALIGN_RIGHT);
+            update_battery(BoardHal::instance().snapshot().battery_percent);
             auto* list = object(root_, 0, 94, kDisplay, 256, kBase, 0);
             lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_set_scroll_dir(list, LV_DIR_VER);
@@ -1503,6 +1508,12 @@ void ProductUI::hide_hold() {
     if (hold_overlay_) lv_obj_add_flag(hold_overlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
+void ProductUI::update_battery(std::uint8_t percent) {
+    if (!battery_value_ || battery_percent_ == percent) return;
+    battery_percent_ = percent;
+    lv_label_set_text_fmt(battery_value_, "%u%%", percent);
+}
+
 void ProductUI::update_settings_labels() {
     if (wifi_value_) {
         const char* value = latest_wifi_.connected ? "已连接"
@@ -1672,6 +1683,7 @@ void ProductUI::refresh(const BoardStatus& board, const ble_link_status_t& link,
     latest_wifi_ = wifi;
     const std::uint32_t now = now_ms();
 
+    if (page_ == Page::settings) update_battery(board.battery_percent);
     if (page_ == Page::wifi && previous_portal_state != wifi.portal_state) {
         show(Page::wifi, wallpaper);
     } else if (page_ == Page::wifi && wifi_countdown_ &&

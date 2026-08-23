@@ -49,6 +49,7 @@ private:
     void update_image_rotation(float degrees);
     void show_controls();
     void hide_hold();
+    void update_battery(std::uint8_t percent);
     void update_settings_labels();
     void show_settings_with_draft();
     void return_to_image();
@@ -106,6 +107,7 @@ private:
     _lv_obj_t* loading_state_{};
     _lv_obj_t* category_value_{};
     _lv_obj_t* type_value_{};
+    _lv_obj_t* battery_value_{};
     _lv_obj_t* pairing_value_{};
     _lv_obj_t* wifi_value_{};
     _lv_obj_t* brightness_value_{};
@@ -132,6 +134,7 @@ private:
     std::uint32_t media_revision_{};
     std::uint32_t request_revision_{};
     std::uint16_t custom_interval_minutes_{5};
+    std::uint8_t battery_percent_{UINT8_MAX};
     bool controls_visible_{};
     bool controls_hiding_{};
 };
