@@ -160,6 +160,9 @@ final class DeviceConnectionManager {
             format = 2
         } else if data.starts(with: [0xFF, 0xD8]) {
             format = 1
+        } else if data.starts(with: Array("GIF87a".utf8)) ||
+                    data.starts(with: Array("GIF89a".utf8)) {
+            format = 3
         } else {
             throw DeviceControlError.invalidWallpaper
         }
@@ -364,7 +367,7 @@ private enum DeviceControlError: LocalizedError {
         switch self {
         case .notConnected: "StopWatch 蓝牙控制链路尚未就绪。"
         case .invalidResponse: "StopWatch 返回了无法识别的响应。"
-        case .invalidWallpaper: "壁纸文件为空或超过 3 MB。"
+        case .invalidWallpaper: "壁纸文件为空、超过 3 MB，或不是受支持的 PNG、JPEG、GIF。"
         case let .deviceStatus(status):
             switch status {
             case 1: "StopWatch 当前状态不允许此操作。"

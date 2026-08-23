@@ -20,6 +20,7 @@
 | [vendor-patching.md](vendor-patching.md) | `device/vendor/**` 是怎么固定和打补丁的，直接改为什么会凭空消失 |
 | [concurrent-agent-sessions.md](concurrent-agent-sessions.md) | 两个 agent 在同一个工作区里互删对方代码的真实记录 |
 | [wifi-infrastructure-provisioning.md](wifi-infrastructure-provisioning.md) | Apple Wi-Fi Infrastructure 为什么必须经 AccessorySetupKit 和 Accessory Transport Extension |
+| [ios-photos-picker-live-photo.md](ios-photos-picker-live-photo.md) | 为什么不能只靠 `supportedContentTypes` 识别实况照片，以及正确的加载顺序 |
 
 ## 怎么写一篇
 

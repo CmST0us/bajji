@@ -8,6 +8,53 @@
 
 ---
 
+## 2026-08-23 · iOS 视频/实况照片转 GIF、发送历史与再次发送已实现，待真机端到端验收
+
+iOS 图片入口现用系统 `PhotosPicker` 同时接收图片、实况照片与视频；图片继续输出 468×468 PNG。实况照片通过
+`PHLivePhoto` 取得资源，优先导出当前编辑版本的 `fullSizePairedVideo`，再回退原始 `pairedVideo`，不申请整库照片
+权限；它和普通视频共用原生 `AVPlayer` 循环预览与独立入点/出点滑杆，最长截取 6 秒，再由
+`AVAssetImageGenerator` + ImageIO 输出 468×468 循环 GIF。导出从 12 fps 开始，并在超过现有 3 MiB 传输上限时
+依次降到 8/6/4 fps；仍超限会要求缩短片段。`DeviceConnectionManager.sendWallpaper` 已识别
+GIF87a/GIF89a 并发送协议 format 3，原有分块 ACK、CRC、取消与 COMMIT 语义不变。
+
+首版曾先按 `supportedContentTypes` 分流，用户真机选中实况照片后实际落入普通图片 PNG 分支。现已按 Apple 示例
+改为无条件优先请求 `PHLivePhoto`，只有明确返回 `nil` 才按 UTI 回退，并把 PhotosPicker 编码策略设为 `.current`
+避免预先转码；实况 UTI 存在但对象加载失败会明确报错，不再静默变成 PNG。根因与排除项见
+[`wiki/ios-photos-picker-live-photo.md`](wiki/ios-photos-picker-live-photo.md)。
+
+设备 COMMIT 成功后，App 才把本次 PNG/GIF 原始发送字节、PNG 预览和 JSON 元数据写入
+Application Support 的 `SentHistory`；历史列表可查看 PNG/GIF、进入详情并再次发送。再次发送沿用同一 UUID，
+只更新时间和排序，不复制记录；失败/取消不新增历史，也不覆盖设备旧壁纸。当前版本按需求未加入搜索、删除、
+筛选或云同步。
+
+新增 `WallpaperMediaTests` 覆盖图片/视频/实况照片类型识别、实况 GIF 命名、6 秒截选边界、成功前无历史、
+重复发送去重、历史再次发送和重启持久化。
+验证通过：Swift package 13/13、Plist/pbxproj、`git diff --check`、iPhoneOS Debug build、iPhoneOS
+`build-for-testing`。本机没有已启动的 iOS Simulator，因此新 Xcode 测试只完成编译，尚未执行；仍需在模拟器或
+真机走视频和实况照片选择/导出，并用 StopWatch 验收 PNG/GIF 首次发送、失败中断与历史再次发送。
+
+## 2026-08-23 · Figma 已新增发送历史与再次发送流程
+
+`04 Hi‑Fi UI` 页面新增 `06 · Sent History`（节点 `282:285`），包含 3 个 402×874 状态：混合 PNG/GIF
+历史列表（`282:315`）、记录详情与 GIF 预览（`282:340`）、再次发送的安全传输进度（`282:364`）。原图片首页
+`235:93` 已增加 354×56 pt 的 `发送历史` 入口（`285:881`）。设计只在设备确认成功后写入本机历史；发送失败或
+取消不新增记录，再次发送复用原记录且不会覆盖设备当前壁纸或复制一条新历史。未加入搜索、筛选、删除和云同步。
+
+Figma QA：3/3 屏幕尺寸正确、交互目标均 ≥44 pt、字体仅 SF Pro Regular/Semibold/Bold、无文本越界、旧文案或
+placeholder；截图为 `/tmp/bajji-sent-history-full.png` 和 `/tmp/bajji-images-home-history.png`。程序实现见上一条。
+
+## 2026-08-23 · Figma 已新增视频截选、GIF 导出与传输流程
+
+`04 Hi‑Fi UI` 页面新增 `05 · Video → GIF`（节点 `274:279`），完整覆盖 6 个 402×874 状态：
+系统照片/视频选择器（`275:298`）、视频入点/出点截选（`275:323`）、GIF 预览（`274:334`）、
+GIF 导出（`274:358`）、安全传输（`275:347`）和设备确认已应用（`275:375`）。照片仍进入原方形裁切分支；
+视频截选页使用左右两个 44×64 pt 触控区、循环预览和方形输出导引，设计约束为最长 6 秒、468×468、
+12 fps、导出文件不超过现有 3 MB 传输上限。取消导出、取消发送或失败都明确保留原视频和设备旧壁纸。
+
+本轮设计复用现有 Primary Action、SF Pro 和 Bajji 语义变量，没有新增组件库。Figma QA：6/6 屏幕
+尺寸正确、全部交互目标 ≥44 pt、字体仅 SF Pro Regular/Semibold/Bold、无文本越界、无旧 PNG/JPEG 文案、
+无 placeholder。程序实现见上一条。
+
 ## 2026-08-23 · 壁纸 HTTPS 的 Mbed TLS 内部 DRAM 分配失败已修配置，待真机验证
 
 真机日志 `mbedtls_ssl_setup returned -0x008D` 中的 `-0x008D` 是 Mbed TLS 4 的

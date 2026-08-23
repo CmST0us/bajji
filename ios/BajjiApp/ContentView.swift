@@ -609,8 +609,15 @@ private struct ImagesHomeView: View {
     let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
-    @State private var showsEditor = false
-    @State private var showsTransferStatus = false
+    @State private var presentedSheet: Sheet?
+
+    private enum Sheet: String, Identifiable {
+        case editor
+        case transfer
+        case history
+
+        var id: String { rawValue }
+    }
 
     var body: some View {
         ScrollView {
@@ -641,12 +648,12 @@ private struct ImagesHomeView: View {
                     .frame(width: 208, height: 208)
                     .frame(maxWidth: .infinity)
 
-                    Text(wallpaper.currentImage == nil ? "当前随机壁纸" : "我的图片")
+                    Text(wallpaper.currentImage == nil ? "当前随机壁纸" : wallpaper.currentTitle)
                         .font(.title2.weight(.semibold))
                     Text(wallpaper.currentImage == nil ?
                          "由 StopWatch 管理" :
-                            (wallpaper.needsTransfer ? "468×468 · 已保存在 Bajji App" :
-                                "468×468 · StopWatch 已确认"))
+                            (wallpaper.needsTransfer ? currentMediaDetail + " · 已保存在 Bajji App" :
+                                currentMediaDetail + " · StopWatch 已确认"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Divider()
@@ -659,29 +666,49 @@ private struct ImagesHomeView: View {
                 .padding(18)
                 .bajjiCard()
 
-                Button(wallpaper.currentImage == nil ? "自定义图片" : "更换图片") {
-                    showsEditor = true
+                Button(wallpaper.currentImage == nil ? "选择图片或视频" : "更换图片或视频") {
+                    presentedSheet = .editor
                 }
                 .buttonStyle(BajjiPrimaryButtonStyle())
 
                 if wallpaper.currentImage != nil {
                     Button(wallpaper.needsTransfer ? "发送到 StopWatch" : "查看发送状态") {
-                        showsTransferStatus = true
+                        presentedSheet = .transfer
                     }
-                        .buttonStyle(BajjiOutlineButtonStyle())
+                    .buttonStyle(BajjiOutlineButtonStyle())
                 }
+
+                Button("发送历史") { presentedSheet = .history }
+                    .buttonStyle(BajjiOutlineButtonStyle())
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("图片")
-        .sheet(isPresented: $showsEditor) {
-            WallpaperEditorView(device: device, accessory: accessory, wallpaper: wallpaper)
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .editor:
+                WallpaperEditorView(device: device, accessory: accessory, wallpaper: wallpaper)
+            case .transfer:
+                WallpaperTransferStatusView(
+                    device: device, accessory: accessory, wallpaper: wallpaper
+                )
+            case .history:
+                WallpaperHistoryView(
+                    device: device, accessory: accessory, wallpaper: wallpaper
+                )
+            }
         }
-        .sheet(isPresented: $showsTransferStatus) {
-            WallpaperTransferStatusView(device: device, accessory: accessory, wallpaper: wallpaper)
+    }
+
+    private var currentMediaDetail: String {
+        var parts = ["468×468 \(wallpaper.currentFormat.label)"]
+        if let duration = wallpaper.currentDuration {
+            parts.append(String(format: "%.1f 秒", duration))
         }
+        if let frameRate = wallpaper.currentFrameRate { parts.append("\(frameRate) fps") }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -699,14 +726,19 @@ private struct WallpaperEditorView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                if let image = wallpaper.draftImage {
+                if let video = wallpaper.draftVideo {
+                    VideoTrimEditorView(
+                        draft: video, wallpaper: wallpaper,
+                        showsTransferStatus: $showsTransferStatus
+                    )
+                } else if let image = wallpaper.draftImage {
                     editor(image)
                 } else {
                     pickerIntro
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(wallpaper.draftImage == nil ? "自定义图片" : "调整预览")
+            .navigationTitle(editorTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -721,15 +753,16 @@ private struct WallpaperEditorView: View {
             guard let item else { return }
             Task {
                 do {
-                    try await wallpaper.importPhoto(item)
+                    try await wallpaper.importMedia(item)
                     dragOrigin = .zero
                     zoomOrigin = 1
                 } catch {
                     importError = error.localizedDescription
                 }
+                selectedItem = nil
             }
         }
-        .alert("无法导入图片", isPresented: Binding(
+        .alert("无法导入媒体", isPresented: Binding(
             get: { importError != nil },
             set: { if !$0 { importError = nil } }
         )) {
@@ -747,7 +780,7 @@ private struct WallpaperEditorView: View {
 
     private var pickerIntro: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("从 iOS 照片选择器挑选一张图片。")
+            Text("从 iOS 照片选择器挑选图片、实况照片或视频。")
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -767,23 +800,35 @@ private struct WallpaperEditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("导入后处理")
                     .font(.headline)
-                Text("支持常见照片格式；确认后生成 468×468 无损方形 PNG。")
+                Text("普通照片生成 468×468 PNG；实况照片和视频进入入点/出点截选并导出循环 GIF。")
                     .foregroundStyle(.secondary)
             }
             .padding(16)
             .background(Color(uiColor: .tertiarySystemGroupedBackground))
             .clipShape(.rect(cornerRadius: 16))
 
-            Text("原图保留在系统照片库中；Bajji 仅保存预览所需的结果。")
+            Text("原始照片、实况照片与视频保留在系统照片库中；Bajji 仅保存导出的 PNG 或 GIF。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            PhotosPicker(selection: $selectedItem, matching: .images) {
-                Text("选择照片")
+            PhotosPicker(
+                selection: $selectedItem,
+                matching: .any(of: [.images, .livePhotos, .videos]),
+                preferredItemEncoding: .current
+            ) {
+                Text("选择图片、实况照片或视频")
             }
             .buttonStyle(BajjiPrimaryButtonStyle())
         }
         .padding(24)
+    }
+
+    private var editorTitle: String {
+        if let draft = wallpaper.draftVideo {
+            return draft.isLivePhoto ? "截选实况照片" : "截选视频"
+        }
+        if wallpaper.draftImage != nil { return "调整预览" }
+        return "自定义壁纸"
     }
 
     private func editor(_ image: UIImage) -> some View {
@@ -863,32 +908,43 @@ private struct WallpaperEditorView: View {
     }
 }
 
-private struct WallpaperTransferStatusView: View {
+struct WallpaperTransferStatusView: View {
     @Environment(\.dismiss) private var dismiss
     let device: DeviceConnectionManager
     let accessory: AccessoryManager
     let wallpaper: WallpaperStore
+    let source: WallpaperTransferSource
     @State private var phase = Phase.ready
     @State private var progress = 0.0
     @State private var errorMessage: String?
     @State private var transferTask: Task<Void, Never>?
+    @State private var preparedPayload: WallpaperTransferPayload?
 
     private enum Phase: Equatable { case ready, sending, validating, success, failure, cancelled }
+
+    init(device: DeviceConnectionManager, accessory: AccessoryManager,
+         wallpaper: WallpaperStore, source: WallpaperTransferSource = .current) {
+        self.device = device
+        self.accessory = accessory
+        self.wallpaper = wallpaper
+        self.source = source
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("图片会通过已配对的加密蓝牙链路发送；设备校验完成前不会替换当前壁纸。")
+                    Text("PNG 或 GIF 会通过已配对的加密蓝牙链路发送；设备校验完成前不会替换当前壁纸。")
                         .foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: 18) {
-                        if let image = wallpaper.currentImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
+                        if let payload = preparedPayload {
+                            WallpaperMediaPreview(
+                                preview: payload.preview,
+                                gifData: payload.format == .gif ? payload.data : nil
+                            )
                                 .frame(width: 72, height: 72)
-                                .clipShape(.circle)
+                                .clipShape(.rect(cornerRadius: 14))
                         }
                         StatusBadge(statusLabel, color: statusColor)
                         if phase == .sending {
@@ -900,7 +956,7 @@ private struct WallpaperTransferStatusView: View {
                             .tint(.bajjiAccent)
                             .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
                         }
-                        TransferStep(number: "01", title: "准备方形资源", detail: "468×468 无损 PNG 已保存在 App", state: .complete)
+                        TransferStep(number: "01", title: source == .current ? "准备方形资源" : "从历史加载资源", detail: preparedMediaDetail, state: .complete)
                         TransferStep(number: "02", title: "发送到 StopWatch", detail: transferDetail, state: transferStepState)
                         TransferStep(number: "03", title: "校验壁纸文件", detail: "核对大小、CRC、格式与解码预算", state: validationStepState)
                         TransferStep(number: "04", title: "原子替换并确认", detail: "设备回执成功后才更新当前壁纸", state: applyStepState)
@@ -944,9 +1000,15 @@ private struct WallpaperTransferStatusView: View {
             }
         }
         .task {
-            if !wallpaper.needsTransfer, wallpaper.currentImage != nil {
-                phase = .success
-                progress = 1
+            do {
+                preparedPayload = try wallpaper.transferPayload(for: source)
+                if source == .current, !wallpaper.needsTransfer {
+                    phase = .success
+                    progress = 1
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                phase = .failure
             }
         }
         .onDisappear { transferTask?.cancel() }
@@ -968,7 +1030,7 @@ private struct WallpaperTransferStatusView: View {
                 startTransfer()
             }
             .buttonStyle(BajjiPrimaryButtonStyle())
-            .disabled(!bridgeReady || !supportsWallpaper || wallpaper.currentImage == nil)
+            .disabled(!bridgeReady || !supportsWallpaper || preparedPayload == nil)
         }
     }
 
@@ -1005,6 +1067,17 @@ private struct WallpaperTransferStatusView: View {
             (phase == .success || phase == .validating ? "全部分块已确认" : "等待开始")
     }
 
+    private var preparedMediaDetail: String {
+        guard let payload = preparedPayload else { return "正在读取本机文件" }
+        var parts = ["468×468 \(payload.format.label)"]
+        if let duration = payload.duration { parts.append(String(format: "%.1f 秒", duration)) }
+        if let frameRate = payload.frameRate { parts.append("\(frameRate) fps") }
+        parts.append(ByteCountFormatter.string(
+            fromByteCount: Int64(payload.data.count), countStyle: .file
+        ))
+        return parts.joined(separator: " · ")
+    }
+
     private var transferStepState: TransferStep.State {
         switch phase {
         case .sending: .active
@@ -1028,14 +1101,13 @@ private struct WallpaperTransferStatusView: View {
     }
 
     private func startTransfer() {
-        guard transferTask == nil else { return }
+        guard transferTask == nil, let payload = preparedPayload else { return }
         phase = .sending
         progress = 0
         errorMessage = nil
         transferTask = Task {
             do {
-                let data = try wallpaper.transferData()
-                try await device.sendWallpaper(data) { stage, value in
+                try await device.sendWallpaper(payload.data) { stage, value in
                     progress = value
                     switch stage {
                     case .sending: phase = .sending
@@ -1043,7 +1115,11 @@ private struct WallpaperTransferStatusView: View {
                     case .complete: phase = .success
                     }
                 }
-                wallpaper.markSent()
+                do {
+                    try wallpaper.recordSuccessfulSend(source: source, payload: payload)
+                } catch {
+                    errorMessage = "StopWatch 已确认，但无法保存发送历史：\(error.localizedDescription)"
+                }
             } catch is CancellationError {
                 phase = .cancelled
             } catch {
@@ -1549,7 +1625,7 @@ private struct StatusRow: View {
     }
 }
 
-private struct StatusBadge: View {
+struct StatusBadge: View {
     let label: String
     let color: Color
 
@@ -1590,7 +1666,7 @@ private struct BajjiArtwork: View {
     }
 }
 
-private struct BajjiPrimaryButtonStyle: ButtonStyle {
+struct BajjiPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -1605,7 +1681,7 @@ private struct BajjiPrimaryButtonStyle: ButtonStyle {
     }
 }
 
-private struct BajjiOutlineButtonStyle: ButtonStyle {
+struct BajjiOutlineButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var color: Color = .bajjiAccent
 
@@ -1638,7 +1714,7 @@ private struct BajjiDestructiveButtonStyle: ButtonStyle {
     }
 }
 
-private extension View {
+extension View {
     func bajjiCard() -> some View {
         background(Color(uiColor: .secondarySystemGroupedBackground))
             .clipShape(.rect(cornerRadius: 20))
@@ -1650,158 +1726,9 @@ private extension View {
     }
 }
 
-private extension Color {
+extension Color {
     static let bajjiAccent = Color(red: 0, green: 122 / 255, blue: 140 / 255)
     static let bajjiDarkSurface = Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255)
     static let bajjiSuccess = Color(red: 27 / 255, green: 127 / 255, blue: 74 / 255)
     static let bajjiWarning = Color(red: 154 / 255, green: 91 / 255, blue: 0)
-}
-
-enum WallpaperDisplayMode: String, CaseIterable {
-    case fit
-    case fill
-
-    var label: String {
-        switch self {
-        case .fit: "适应"
-        case .fill: "填充"
-        }
-    }
-
-    var contentMode: ContentMode {
-        switch self {
-        case .fit: .fit
-        case .fill: .fill
-        }
-    }
-}
-
-@MainActor
-@Observable
-final class WallpaperStore {
-    private static let maximumImportBytes = 40 * 1024 * 1024
-    private static let maximumPixels: CGFloat = 50_000_000
-
-    var currentImage: UIImage?
-    var draftImage: UIImage?
-    var displayMode: WallpaperDisplayMode = .fill {
-        didSet {
-            UserDefaults.standard.set(displayMode.rawValue, forKey: "bajji.wallpaperDisplayMode")
-        }
-    }
-    var zoom: CGFloat = 1
-    var offset: CGSize = .zero
-    var updatedAt: Date?
-    var lastSentAt: Date?
-
-    var needsTransfer: Bool {
-        guard currentImage != nil, let updatedAt else { return false }
-        return lastSentAt.map { $0 < updatedAt } ?? true
-    }
-
-    init() {
-        if let rawValue = UserDefaults.standard.string(forKey: "bajji.wallpaperDisplayMode"),
-           let savedMode = WallpaperDisplayMode(rawValue: rawValue) {
-            displayMode = savedMode
-        }
-        lastSentAt = UserDefaults.standard.object(forKey: "bajji.wallpaperLastSentAt") as? Date
-        guard let url = Self.currentImageURL,
-              let data = try? Data(contentsOf: url),
-              let image = UIImage(data: data) else { return }
-        currentImage = image
-        updatedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate
-    }
-
-    func importPhoto(_ item: PhotosPickerItem) async throws {
-        guard let data = try await item.loadTransferable(type: Data.self) else {
-            throw WallpaperError.unreadableImage
-        }
-        guard data.count <= Self.maximumImportBytes,
-              let image = UIImage(data: data),
-              image.size.width * image.scale * image.size.height * image.scale <= Self.maximumPixels else {
-            throw WallpaperError.imageTooLarge
-        }
-        draftImage = image
-        resetTransform()
-    }
-
-    func saveDraft() throws {
-        guard let image = draftImage else { throw WallpaperError.unreadableImage }
-        let rendered = WallpaperRenderer.render(image, zoom: zoom, offset: offset)
-        guard let data = rendered.pngData() else {
-            throw WallpaperError.couldNotEncode
-        }
-        try FileManager.default.createDirectory(
-            at: Self.savedImageURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: Self.savedImageURL, options: .atomic)
-        try? FileManager.default.removeItem(at: Self.legacyImageURL)
-        currentImage = rendered
-        updatedAt = Date()
-        draftImage = nil
-        resetTransform()
-    }
-
-    func discardDraft() {
-        draftImage = nil
-        resetTransform()
-    }
-
-    func transferData() throws -> Data {
-        guard let url = Self.currentImageURL else { throw WallpaperError.unreadableImage }
-        let data = try Data(contentsOf: url)
-        guard !data.isEmpty else { throw WallpaperError.unreadableImage }
-        return data
-    }
-
-    func markSent() {
-        lastSentAt = Date()
-        UserDefaults.standard.set(lastSentAt, forKey: "bajji.wallpaperLastSentAt")
-    }
-
-    func resetTransform() {
-        zoom = 1
-        offset = .zero
-    }
-
-    func setZoom(_ value: CGFloat, for image: UIImage) {
-        zoom = min(4, max(1, value))
-        offset = WallpaperRenderer.clampedOffset(offset, imageSize: image.size, zoom: zoom)
-    }
-
-    func setOffset(_ value: CGSize, for image: UIImage) {
-        offset = WallpaperRenderer.clampedOffset(value, imageSize: image.size, zoom: zoom)
-    }
-
-    private static var savedImageURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Bajji", directoryHint: .isDirectory)
-            .appending(path: "wallpaper-preview.png")
-    }
-
-    private static var legacyImageURL: URL {
-        savedImageURL.deletingLastPathComponent().appending(path: "wallpaper-preview.jpg")
-    }
-
-    private static var currentImageURL: URL? {
-        if FileManager.default.fileExists(atPath: savedImageURL.path) { return savedImageURL }
-        if FileManager.default.fileExists(atPath: legacyImageURL.path) { return legacyImageURL }
-        return nil
-    }
-}
-
-private enum WallpaperError: LocalizedError {
-    case unreadableImage
-    case imageTooLarge
-    case couldNotEncode
-
-    var errorDescription: String? {
-        switch self {
-        case .unreadableImage: "无法读取所选照片。"
-        case .imageTooLarge: "图片过大，请选择小于 40 MB、5000 万像素的照片。"
-        case .couldNotEncode: "无法生成 StopWatch 预览资源。"
-        }
-    }
 }
