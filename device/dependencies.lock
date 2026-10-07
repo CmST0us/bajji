@@ -10,7 +10,7 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/esp_codec_dev:
-    component_hash: 0d9e9bc288156eb55f79338d312e1ebf8c9dfbd5e7d13ef0f20ccb031b4e15cf
+    component_hash: 4779f31a3ba3f9b38aee1afe6ccb9ba8f6108dc3a6e77d39d7d714e9a215371b
     dependencies:
     - name: idf
       require: private
@@ -18,7 +18,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 1.5.4
+    version: 1.6.2
   espressif/i2c_bus:
     component_hash: 483112c1619c54c38d0b734fb25f1678733267858a77b7af2f48cc7db6dbbd84
     dependencies:
@@ -42,6 +42,6 @@ direct_dependencies:
 - espressif/esp_codec_dev
 - espressif/i2c_bus
 - idf
-manifest_hash: 1c9b673743200961f282b0721704fb7038a678abf3814ec129e1601cbfad9dba
+manifest_hash: f758e4aad2158a8bb833e499f2378bdfa921bbc1c3703c007ccbb4038a881766
 target: esp32s3
 version: 3.0.0

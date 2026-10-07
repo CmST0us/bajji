@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
+#ifdef BAJJI_BOARD_AI_PASSPORT
+#include "passport_ui.hpp"
+#else
 
 #include <cstdint>
 
@@ -140,3 +143,5 @@ private:
 };
 
 }  // namespace bajji
+
+#endif

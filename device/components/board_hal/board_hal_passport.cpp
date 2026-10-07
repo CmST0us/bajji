@@ -128,12 +128,14 @@ esp_err_t BoardHal::init() {
     return ESP_OK;
 }
 BoardStatus BoardHal::snapshot() {
+    if (!state_mutex) return status_;
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     const auto result = status_;
     xSemaphoreGive(state_mutex);
     return result;
 }
 void BoardHal::poll(bool) {
+    if (!state_mutex) return;
     const auto now = esp_timer_get_time();
     if (now - battery_time < 5000000) return;
     battery_time = now;
@@ -147,6 +149,7 @@ void BoardHal::poll(bool) {
     xSemaphoreGive(state_mutex);
 }
 esp_err_t BoardHal::set_brightness(std::uint8_t percent) {
+    if (!state_mutex) return ESP_ERR_INVALID_STATE;
     percent = std::min<std::uint8_t>(percent, 100);
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     nvs_handle_t settings = 0;

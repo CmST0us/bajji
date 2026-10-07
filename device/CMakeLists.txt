@@ -19,6 +19,9 @@ if(BAJJI_BOARD STREQUAL "stopwatch")
 endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+if(BAJJI_BOARD STREQUAL "ai_passport")
+    idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_CURRENT_LIST_DIR}/dependencies.ai_passport.lock")
+endif()
 project(bajji_${BAJJI_BOARD})
 
 # GCC 15 diagnoses the unreachable i+1 access in ESP-IDF 6.0's

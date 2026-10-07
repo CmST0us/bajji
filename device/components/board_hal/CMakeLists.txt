@@ -1,4 +1,4 @@
-if(BAJJI_BOARD STREQUAL "ai_passport")
+if(IDF_TARGET STREQUAL "esp32c3")
     set(BSP_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../vendor/ai-passport/components/bsp")
     idf_component_register(
         SRCS "board_hal_passport.cpp"

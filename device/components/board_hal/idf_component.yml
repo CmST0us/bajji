@@ -1,2 +1,2 @@
 dependencies:
-  espressif/esp_codec_dev: "1.5.4"
+  espressif/esp_codec_dev: "1.6.2"
