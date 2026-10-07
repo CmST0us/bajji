@@ -518,7 +518,7 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
             break;
         }
         char url[512];
-    #ifdef BAJJI_BOARD_AI_PASSPORT
+#ifdef BAJJI_BOARD_AI_PASSPORT
         if (wallpaper_build_passport_proxy_url(origin,
 #else
         if (wallpaper_build_proxy_url(origin,

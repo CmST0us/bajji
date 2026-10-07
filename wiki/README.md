@@ -8,6 +8,7 @@
 
 | 页面 | 讲什么 |
 |---|---|
+| [idf-multi-board-component-selection.md](idf-multi-board-component-selection.md) | 多板型的组件 early expansion 为什么不能直接依赖普通 CMake 变量 |
 | [lvgl-blur-seam.md](lvgl-blur-seam.md) | `clip_corner` 会把子对象拆成上下两个图层画，把 LVGL 的 IIR 模糊切断了 |
 | [instrumenting-over-guessing.md](instrumenting-over-guessing.md) | 上面那条缝是怎么找出来的，以及为什么五个"读源码推出来"的假设全错 |
 | [wallpaper-cache-filesystem.md](wallpaper-cache-filesystem.md) | SPIFFS 为什么会在换壁纸时把看门狗喂爆，以及换成 FAT 的经过 |

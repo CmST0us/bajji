@@ -73,6 +73,13 @@ decoder-budget checks. The temporary file then atomically replaces the current
 cache. Cancellation, disconnection, or any failed commit deletes only the
 temporary file, leaving the current wallpaper intact.
 
+When BridgeInfo bit `0x80` is present, the receiver accepts only baseline JPEG (`01`),
+1–65,536 bytes, width/height 1–160 and at most 19,200 pixels. Clients must prepare the
+media before `BEGIN`; unsupported formats return status `05`. GIF/video may be converted
+to a static preview only with clear user-facing disclosure. Fit mode on this profile uses
+a plain background instead of blur. These limits override the general 3 MiB media profile;
+the existing transaction framing, CRC and atomic replacement semantics still apply.
+
 ## Network selection
 
 Network mode is mutually exclusive and persists on the Device: unset `00`,
@@ -97,7 +104,7 @@ The response sequence matches the request sequence.
 BridgeInfo is readable only on the encrypted bonded link and is exactly 22
 bytes: protocol version, capability bits (`0x01` IPv4, `0x02` TCP, `0x04` UDP,
 `0x08` device settings, `0x10` wallpaper transfer, `0x20` network control,
-`0x40` control-only CoC), big-endian
+`0x40` control-only CoC, `0x80` compact static-JPEG profile), big-endian
 PSM, big-endian maximum payload, then the stable 16-byte Device ID.
 
 ## Wi-Fi provisioning

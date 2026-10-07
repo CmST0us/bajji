@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: MIT
+#pragma once
+#define LV_COLOR_DEPTH 16
+#define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB
+#define LV_USE_FLOAT 1
+#define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_20 1
+#define LV_FONT_MONTSERRAT_24 1
+#define LV_FONT_MONTSERRAT_28 1
+#define LV_USE_QRCODE 1
+#define LV_USE_TJPGD 1
+#define LV_USE_FS_STDIO 1
+#define LV_FS_STDIO_LETTER 'S'
+#define LV_FS_STDIO_PATH ""
+#define LV_USE_LOG 1
+#define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
+#define LV_LOG_PRINTF 1
+#define LV_CACHE_DEF_SIZE 0
+
+#define LV_FONT_MONTSERRAT_18 1

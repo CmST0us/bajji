@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-10-07 · AI Passport 分支适配，构建通过，待真机与代理部署
+
+分支 `feature/ai-passport`。新增 C3/8 MB/no-PSRAM 配置、独立 HAL、240×320 竖屏 UI；
+UP/DOWN 对应显示/换图，提示沿右侧排列，OK 进入设置、长按返回，全部设置可不用触摸操作。
+官方 BSP 固定于 `33d3d1d93a1125b356b47b6d83a7a60121be801e`，codec 升级到 1.6.2；
+StopWatch 与 Passport 均完成 ESP-IDF 6.0 构建。Passport 仅接受 <=64 KiB、<=19,200 像素的
+静态 JPEG，BridgeInfo bit 0x80 告知手机；手机发送 PNG/GIF/视频前生成静态 JPEG 并说明限制。
+
+host、LVGL 页面边界/字形/按键导航/解码、Worker 4 项、Swift 14 项测试通过；iPhoneOS
+build-for-testing 通过。模拟器因原有 WiFiSharingExtension 依赖真机 WiFiInfrastructure 而
+无法构建，UIKit 新测试尚未执行。未连接串口设备、未烧写；真实 ADC、屏幕方向、联网堆余量与
+栈水位待测。`/passport-cover` 和 `/passport-fit` 已加到 Worker，但**未部署**，随机换图依赖此部署。
+完整说明和验收清单见 `docs/ai-passport.md`；LVGL 截图见 `docs/validation/ai-passport-ui.png`。
+工具链本次安装在 `/tmp/bajji-esp-idf`，Python/toolchains 在 `~/.espressif`；SDK checkout 是临时路径。
+
+
 ## 2026-08-23 · 设备设置顶部已显示实时电量，待真机目视确认
 
 设备设置页右上角现显示 BoardHal 已有 PMIC 采样的电池百分比；仅在百分比变化时更新 LVGL 文本，不新增硬件

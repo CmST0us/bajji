@@ -209,7 +209,7 @@ void ProductUI::draw() {
     }
     // The product front view puts UP, DOWN and OK down the right edge. Preserve the
     // yellow/blue action identities, but never reuse StopWatch's top-edge/chord hints.
-    key_hint(root_, page_ == Page::home ? "模式" : LV_SYMBOL_UP, 24, 0xffc52f);
+    key_hint(root_, page_ == Page::home ? "显示" : LV_SYMBOL_UP, 24, 0xffc52f);
     key_hint(root_, page_ == Page::home ? "换图" : LV_SYMBOL_DOWN, 140, 0x2f8fff);
     key_hint(root_, page_ == Page::home ? "设置" : "OK", 256, kAccent);
     if (page_ == Page::home) {
@@ -217,9 +217,9 @@ void ProductUI::draw() {
             text(root_, "Bajji", 12, 34, 164, &bajji_font_20, kAccent);
             text(root_, "AI Passport", 12, 65, 164);
             const char* message = wallpaper_.busy ? "正在加载图片" : wallpaper_.has_cache ?
-                "图片加载失败" : link_.has_bond ? "选择图片参数" : "请在 iPhone 添加设备";
+                "图片加载失败" : link_.has_bond ? "选择图片参数" : "请在 iPhone 配对";
             text(root_, message, 12, 106, 168, &bajji_font_20);
-            text(root_, "OK: 设置\nUP: 显示方式\nDOWN: 换图", 12, 210, 170);
+            text(root_, "OK: 设置\nUP: 显示\nDOWN: 换图", 12, 210, 170);
         }
         if (link_.connected && !link_.encrypted) {
             auto* box = panel(root_, 8, 88, 174, 110, kSurface);
@@ -227,7 +227,8 @@ void ProductUI::draw() {
             char code[12]; std::snprintf(code, sizeof(code), "%06lu", (unsigned long)link_.passkey);
             text(box, code, 10, 46, 152, &lv_font_montserrat_28, kAccent);
         }
-        status_label_ = text(root_, "", 10, 298, 178, &bajji_font_16, kAccent);
+        auto* footer = panel(root_, 0, 292, 184, 28, kSurface);
+        status_label_ = text(footer, wallpaper_.online ? "在线" : "离线", 10, 6, 174, &bajji_font_16, kAccent);
     } else {
         const char* heading = "设备设置";
         switch (page_) {
@@ -236,7 +237,7 @@ void ProductUI::draw() {
             case Page::brightness: heading = "屏幕亮度"; break;
             case Page::interval: heading = "定时刷新"; break;
             case Page::wifi: heading = "Wi-Fi"; break;
-            case Page::pairing: heading = "配对管理"; break;
+            case Page::pairing: heading = "设备配对"; break;
             case Page::unpair: heading = "解除配对"; break;
             default: break;
         }
@@ -271,7 +272,7 @@ void ProductUI::draw() {
                 char value[80]{};
                 switch (page_) {
                     case Page::settings: {
-                        constexpr const char* labels[] = {"图片分类", "屏幕亮度", "定时刷新", "Wi-Fi", "配对管理", "保存并加载", "返回"};
+                        constexpr const char* labels[] = {"图片分类", "屏幕亮度", "定时刷新", "Wi-Fi", "设备配对", "保存并加载", "返回"};
                         std::snprintf(value, sizeof(value), "%s", labels[index]); break;
                     }
                     case Page::category: std::snprintf(value, sizeof(value), "%s", kCategories[index].label); break;

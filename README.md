@@ -22,6 +22,13 @@ The end-to-end demo runs on the watch itself: it securely pairs with one iPhone,
 > [!IMPORTANT]
 > Bajji is an experimental hardware project. The iOS bridge requires a physical iPhone running iOS 26 and developer signing with Packet Tunnel and App Group entitlements. Apple Wi-Fi Infrastructure provisioning additionally requires iOS 26.2 and its restricted entitlements. It is not an App Store or TestFlight distribution.
 
+## AI Passport
+
+A separate ESP32-C3 board profile adds FoloToy AI Passport with a portrait UI, right-side
+button hints and bounded JPEG media. See [build instructions and validation](docs/ai-passport.md).
+The original StopWatch profile remains the default. Passport hardware validation and the
+new random-wallpaper Worker deployment are pending.
+
 ## Highlights
 
 - **Wi-Fi first, phone fallback** — Apple Wi-Fi Infrastructure securely shares a personal network; the BLE Packet Tunnel takes over whenever Wi-Fi loses its IP connection.
