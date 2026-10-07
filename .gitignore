@@ -33,3 +33,8 @@ ios/Config/Local.xcconfig
 __pycache__/
 *.py[cod]
 .venv/
+
+# Per-board ESP-IDF outputs
+device/build-*/
+device/sdkconfig.ai_passport
+device/sdkconfig.ai_passport.old

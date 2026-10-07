@@ -74,6 +74,8 @@ extern "C" void app_main() {
         const bajji::ButtonEvents buttons = board.take_button_events();
         // Keep edges until the UI lock succeeds, but use the latest hold progress.
         pending_buttons.a_pressed |= buttons.a_pressed;
+        pending_buttons.ok_pressed |= buttons.ok_pressed;
+        pending_buttons.back_pressed |= buttons.back_pressed;
         pending_buttons.b_pressed |= buttons.b_pressed;
         pending_buttons.chord_started |= buttons.chord_started;
         pending_buttons.chord_completed |= buttons.chord_completed;
@@ -81,6 +83,7 @@ extern "C" void app_main() {
         pending_buttons.chord_progress_ms = buttons.chord_progress_ms;
         const TickType_t now = xTaskGetTickCount();
         const bool input_pending = pending_buttons.a_pressed || pending_buttons.b_pressed ||
+                                   pending_buttons.ok_pressed || pending_buttons.back_pressed ||
                                    pending_buttons.chord_started ||
                                    pending_buttons.chord_completed ||
                                    pending_buttons.chord_cancelled ||

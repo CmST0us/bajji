@@ -7,6 +7,8 @@ namespace bajji {
 
 struct ButtonEvents {
     bool a_pressed{};
+    bool ok_pressed{};
+    bool back_pressed{};
     bool b_pressed{};
     bool chord_started{};
     bool chord_completed{};

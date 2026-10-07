@@ -27,5 +27,9 @@
   "libwebp": {
     "ref": "4fa21912338357f89e4fd51cf2368325b59e9bd9",
     "url": "https://github.com/webmproject/libwebp.git"
+  },
+  "ai-passport": {
+    "url": "https://github.com/FoloToy/ai-passport.git",
+    "ref": "33d3d1d93a1125b356b47b6d83a7a60121be801e"
   }
 }
