@@ -5,6 +5,23 @@ import UIKit
 
 @Suite("Wallpaper renderer")
 struct WallpaperRendererTests {
+    @Test @MainActor func passportUsesBoundedStaticJPEG() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 468, height: 468)).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 468, height: 468))
+        }
+        let source = WallpaperTransferPayload(data: Data("GIF89a".utf8), preview: image,
+                                              title: "Example", format: .gif, duration: 3, frameRate: 12)
+        let result = try WallpaperRenderer.passportPayload(source)
+        let decoded = try #require(UIImage(data: result.data))
+        #expect(decoded.size == CGSize(width: 120, height: 120))
+        #expect(result.preview.scale == 1)
+        #expect(result.format == .jpeg && WallpaperMediaFormat.detect(result.data) == .jpeg)
+        #expect(result.data.count <= 64 * 1024)
+        #expect(result.duration == nil && result.frameRate == nil)
+        #expect(source.format == .gif && source.duration == 3)
+    }
+
     @Test @MainActor func rendersSquareOpaquePNGAtDeviceResolution() throws {
         let input = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 200)).image { context in
             UIColor.red.setFill()

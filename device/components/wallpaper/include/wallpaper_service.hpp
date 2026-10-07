@@ -9,7 +9,11 @@
 
 namespace bajji {
 
+#ifdef BAJJI_BOARD_AI_PASSPORT
+constexpr std::uint32_t kWallpaperTransferMaximumBytes = 64U * 1024U;
+#else
 constexpr std::uint32_t kWallpaperTransferMaximumBytes = 3U * 1024U * 1024U;
+#endif
 
 enum class DisplayMode : std::uint8_t { cover = 0, fit_blur = 1 };
 

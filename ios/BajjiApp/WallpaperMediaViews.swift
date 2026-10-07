@@ -228,7 +228,7 @@ struct WallpaperHistoryView: View {
                     ContentUnavailableView(
                         "还没有发送记录",
                         systemImage: "clock.arrow.circlepath",
-                        description: Text("图片或 GIF 只有在 StopWatch 确认接收成功后才会保存在这里。")
+                        description: Text("图片或 GIF 只有在设备确认接收成功后才会保存在这里。")
                     )
                 } else {
                     List(wallpaper.histories) { item in
@@ -332,7 +332,7 @@ private struct WallpaperHistoryDetailView: View {
                             Text(item.detail)
                                 .foregroundStyle(.secondary)
                             Divider()
-                            Text("发送于 \(item.sentAt.formatted(date: .abbreviated, time: .shortened)) · StopWatch 已确认")
+                            Text("发送于 \(item.sentAt.formatted(date: .abbreviated, time: .shortened)) · 设备已确认")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -343,7 +343,7 @@ private struct WallpaperHistoryDetailView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
 
-                        Button("再次发送到 StopWatch") {
+                        Button("再次发送到设备") {
                             transferSource = .history(item.id)
                         }
                         .buttonStyle(BajjiPrimaryButtonStyle())

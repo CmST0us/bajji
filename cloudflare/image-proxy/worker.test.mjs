@@ -106,3 +106,23 @@ test("retries a flaky UAPI source before transforming", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Passport variants produce bounded static JPEGs", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("source", { headers: { "content-type": "image/gif" } });
+  try {
+    for (const mode of ["cover", "fit"]) {
+      let transform, output;
+      const env = { IMAGES: { input() { return {
+        transform(value) { transform = value; return this; },
+        async output(value) { output = value; return { response: () => new Response("jpeg") }; },
+      }; } } };
+      const response = await worker.fetch(new Request(`https://proxy.example/passport-${mode}?_=1`), env);
+      assert.equal(response.status, 200);
+      assert.equal(transform.width, 120);
+      assert.equal(transform.height, 160);
+      assert.equal(transform.fit, mode === "fit" ? "contain" : "cover");
+      assert.deepEqual(output, { format: "image/jpeg", quality: 80, anim: false });
+    }
+  } finally { globalThis.fetch = previousFetch; }
+});

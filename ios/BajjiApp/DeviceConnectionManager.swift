@@ -20,13 +20,14 @@ final class DeviceConnectionManager {
 
     var state: DeviceConnectionState = .unbound
     var status = "尚未绑定"
-    var detail = "添加 StopWatch 后会自动建立蓝牙控制连接。"
+    var detail = "添加设备后会自动建立蓝牙控制连接。"
     var bluetooth: BluetoothSnapshot?
     var network: DeviceNetworkState?
     var isBusy = false
 
     var isReady: Bool { state == .connected }
     var capabilities: UInt8 { bluetooth?.capabilities ?? 0 }
+    var isAIPassport: Bool { capabilities & BridgeInfo.compactJPEGCapability != 0 }
 
     init(tunnel: TunnelManager) {
         self.tunnel = tunnel
@@ -63,7 +64,7 @@ final class DeviceConnectionManager {
         if identifier == nil {
             state = .unbound
             status = "尚未绑定"
-            detail = "请重新添加 StopWatch。"
+            detail = "请重新添加设备。"
         } else {
             routeForCurrentMode()
         }
@@ -164,6 +165,9 @@ final class DeviceConnectionManager {
                     data.starts(with: Array("GIF89a".utf8)) {
             format = 3
         } else {
+            throw DeviceControlError.invalidWallpaper
+        }
+        if isAIPassport && (format != 1 || data.count > 64 * 1024) {
             throw DeviceControlError.invalidWallpaper
         }
         let size = UInt32(data.count)
@@ -365,18 +369,18 @@ private enum DeviceControlError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConnected: "StopWatch 蓝牙控制链路尚未就绪。"
-        case .invalidResponse: "StopWatch 返回了无法识别的响应。"
+        case .notConnected: "设备蓝牙控制链路尚未就绪。"
+        case .invalidResponse: "设备返回了无法识别的响应。"
         case .invalidWallpaper: "壁纸文件为空、超过 3 MB，或不是受支持的 PNG、JPEG、GIF。"
         case let .deviceStatus(status):
             switch status {
-            case 1: "StopWatch 当前状态不允许此操作。"
-            case 2: "发送给 StopWatch 的参数无效。"
-            case 3: "StopWatch 无法写入本地存储。"
+            case 1: "设备当前状态不允许此操作。"
+            case 2: "发送给设备的参数无效。"
+            case 3: "设备无法写入本地存储。"
             case 4: "壁纸校验失败，请重新发送。"
-            case 5: "StopWatch 不支持这张图片的格式或尺寸。"
-            case 6: "StopWatch 正忙，请稍后重试。"
-            default: "StopWatch 返回错误状态（\(status)）。"
+            case 5: "设备不支持这张图片的格式或尺寸。"
+            case 6: "设备正忙，请稍后重试。"
+            default: "设备返回错误状态（\(status)）。"
             }
         }
     }

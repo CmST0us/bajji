@@ -20,7 +20,7 @@ enum WiFiSharingState: Equatable {
 @Observable
 final class AccessoryManager: NSObject {
     var status = "尚未添加"
-    var detail = "添加 StopWatch 后，即可共享 iPhone 当前的 Wi‑Fi 网络。"
+    var detail = "添加设备后，即可共享 iPhone 当前的 Wi‑Fi 网络。"
     var hasAccessory = false
     var isBusy = false
     var isPairing = false
@@ -39,7 +39,7 @@ final class AccessoryManager: NSObject {
         descriptor.bluetoothServiceUUID = CBUUID(string: BajjiBluetooth.serviceUUID)
         descriptor.supportedOptions.insert(.bluetoothPairingLE)
         return ASPickerDisplayItem(
-            name: "Bajji StopWatch",
+            name: "Bajji",
             productImage: UIImage(systemName: "applewatch")!,
             descriptor: descriptor
         )
@@ -78,7 +78,7 @@ final class AccessoryManager: NSObject {
 
     func removeAccessory() async {
         guard !isBusy, let accessory else {
-            if accessory == nil { detail = "当前尚未添加 StopWatch。" }
+            if accessory == nil { detail = "当前尚未添加设备。" }
             return
         }
         isBusy = true
@@ -88,7 +88,7 @@ final class AccessoryManager: NSObject {
             try await session.removeAccessory(accessory)
             restoreSelection()
             if session.accessories.isEmpty {
-                detail = "已解除 StopWatch；再次使用时请重新添加。"
+                detail = "已解除设备；再次使用时请重新添加。"
             }
         } catch {
             logger.error("accessory removal failed: \(error.localizedDescription, privacy: .public)")
@@ -105,7 +105,7 @@ final class AccessoryManager: NSObject {
         }
         guard let accessory else {
             logger.error("Wi-Fi sharing rejected: no accessory")
-            detail = "请先添加 StopWatch。"
+            detail = "请先添加设备。"
             wifiSharingState = .failed(detail)
             return
         }
@@ -167,7 +167,7 @@ final class AccessoryManager: NSObject {
         } else {
             save(nil)
             if candidates.count > 1 {
-                detail = "发现多个已添加的 StopWatch，无法唯一确定设备；请移除旧记录后重新添加。"
+                detail = "发现多个已添加的设备，无法唯一确定设备；请移除旧记录后重新添加。"
             }
         }
     }
@@ -206,14 +206,14 @@ final class AccessoryManager: NSObject {
         }
         guard let identifier = accessory?.bluetoothIdentifier else {
             logger.error("authorization failed: accessory has no Bluetooth identifier")
-            finish(.failed("已配对的 StopWatch 没有蓝牙标识。"))
+            finish(.failed("已配对的设备没有蓝牙标识。"))
             return
         }
         let peripherals = central.retrievePeripherals(withIdentifiers: [identifier])
         logger.info("retrieved paired peripherals: count=\(peripherals.count)")
         guard let peripheral = peripherals.first else {
             logger.error("authorization failed: paired peripheral unavailable")
-            finish(.failed("当前无法通过蓝牙找到已配对的 StopWatch。"))
+            finish(.failed("当前无法通过蓝牙找到已配对的设备。"))
             return
         }
         self.peripheral = peripheral
@@ -274,7 +274,7 @@ final class AccessoryManager: NSObject {
         case .authorizing:
             message = "正在等待 iOS 授权。"
         case .shared:
-            message = "Wi‑Fi 凭据已由系统安全共享给 StopWatch。"
+            message = "Wi‑Fi 凭据已由系统安全共享给设备。"
         case .restricted(let reason), .failed(let reason):
             message = reason
         }
@@ -319,6 +319,6 @@ extension AccessoryManager: @MainActor CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral,
                         error: Error?) {
         logger.error("paired peripheral connection failed: \(error?.localizedDescription ?? "no CoreBluetooth error", privacy: .public)")
-        finish(.failed(error?.localizedDescription ?? "无法连接 StopWatch。"))
+        finish(.failed(error?.localizedDescription ?? "无法连接设备。"))
     }
 }

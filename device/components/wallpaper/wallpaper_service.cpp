@@ -300,6 +300,10 @@ esp_err_t validate_image_file(const char* path, wallpaper_media_info_t* info) {
                            : format == WALLPAPER_FORMAT_TRUNCATED ? "truncated" : "unrecognised");
         return ESP_ERR_INVALID_RESPONSE;
     }
+#ifdef BAJJI_BOARD_AI_PASSPORT
+    // Keep the single retained RGB565 image below 40 KiB; no PSRAM is present.
+    if (!wallpaper_passport_media_supported(info)) return ESP_ERR_NOT_SUPPORTED;
+#endif
     const std::uint64_t pixels = static_cast<std::uint64_t>(info->width) * info->height;
     // Bytes per pixel held at the same time while decoding, per format:
     //   JPEG  the RGB565 buffer decode_still() renders into.
@@ -514,7 +518,11 @@ esp_err_t perform_update(const WallpaperSettings& settings, wallpaper_media_info
             break;
         }
         char url[512];
+    #ifdef BAJJI_BOARD_AI_PASSPORT
+        if (wallpaper_build_passport_proxy_url(origin,
+#else
         if (wallpaper_build_proxy_url(origin,
+#endif
                                       settings.display_mode == DisplayMode::fit_blur,
                                       url, sizeof(url)) != 0) {
             result = ESP_ERR_INVALID_ARG;
@@ -793,6 +801,9 @@ esp_err_t wallpaper_apply_parameters(DisplayMode mode, std::uint16_t auto_refres
 esp_err_t wallpaper_transfer_begin(wallpaper_media_format_t format, std::uint32_t size,
                                    std::uint32_t crc32) {
     if (!started || !wallpaper_snapshot().mounted) return ESP_ERR_INVALID_STATE;
+#ifdef BAJJI_BOARD_AI_PASSPORT
+    if (format != WALLPAPER_MEDIA_JPEG) return ESP_ERR_NOT_SUPPORTED;
+#endif
     if (format < WALLPAPER_MEDIA_JPEG || format > WALLPAPER_MEDIA_WEBP || size == 0 ||
         size > kWallpaperTransferMaximumBytes) {
         return ESP_ERR_INVALID_ARG;

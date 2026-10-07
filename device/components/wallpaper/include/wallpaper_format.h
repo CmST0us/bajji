@@ -48,6 +48,10 @@ int wallpaper_build_random_url(const char* category, const char* type, uint32_t 
 // contain transform; cover mode returns a cropped 466x466 image.
 int wallpaper_build_proxy_url(const char* origin, bool fit, char* output, size_t output_size);
 
+// Bounded static-JPEG profile for boards without PSRAM.
+bool wallpaper_passport_media_supported(const wallpaper_media_info_t* info);
+int wallpaper_build_passport_proxy_url(const char* origin, bool fit, char* output, size_t output_size);
+
 #ifdef __cplusplus
 }
 #endif

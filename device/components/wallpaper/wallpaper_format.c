@@ -241,3 +241,19 @@ int wallpaper_build_proxy_url(const char* origin, bool fit, char* output, size_t
                                 fit ? "fit" : "cover", origin + prefix_length);
     return length > 0 && (size_t)length < output_size ? 0 : -1;
 }
+
+// AI Passport has no external RAM. Both proxy and phone use a static baseline JPEG.
+bool wallpaper_passport_media_supported(const wallpaper_media_info_t* info) {
+    return info && info->format == WALLPAPER_MEDIA_JPEG && !info->animated &&
+           info->width > 0 && info->height > 0 && info->width <= 160 &&
+           info->height <= 160 && (uint32_t)info->width * info->height <= 120U * 160U;
+}
+
+int wallpaper_build_passport_proxy_url(const char* origin, bool fit, char* output, size_t output_size) {
+    if (!origin || !output || !output_size) return -1;
+    const size_t prefix_length = sizeof(kOriginPrefix) - 1;
+    if (strncmp(origin, kOriginPrefix, prefix_length) != 0 || !origin[prefix_length]) return -1;
+    const int length = snprintf(output, output_size, "%s/passport-%s?%s", kProxyBase,
+                                fit ? "fit" : "cover", origin + prefix_length);
+    return length > 0 && (size_t)length < output_size ? 0 : -1;
+}

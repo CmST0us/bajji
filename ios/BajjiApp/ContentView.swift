@@ -47,7 +47,7 @@ private struct DeviceHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(accessory.hasAccessory ? device.status : "连接你的 StopWatch")
+                Text(accessory.hasAccessory ? device.status : "连接你的设备")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -60,7 +60,7 @@ private struct DeviceHomeView: View {
                     .buttonStyle(BajjiPrimaryButtonStyle())
                 } else {
                     emptyCard
-                    Button("添加 StopWatch") {
+                    Button("添加设备") {
                         showsPairing = true
                     }
                     .buttonStyle(BajjiPrimaryButtonStyle())
@@ -135,7 +135,7 @@ private struct DeviceHomeView: View {
                 .font(.title3.weight(.semibold))
                 .padding(.bottom, 8)
 
-            StatusRow(label: "StopWatch", value: "已绑定", valueColor: .bajjiSuccess)
+            StatusRow(label: "设备", value: "已绑定", valueColor: .bajjiSuccess)
             Divider()
             StatusRow(label: "控制连接", value: device.status,
                       valueColor: device.isReady ? .bajjiSuccess : .secondary)
@@ -170,7 +170,7 @@ private struct PairingSetupView: View {
                     VStack(spacing: 8) {
                         Text("让 iPhone 找到 Bajji")
                             .font(.title2.weight(.semibold))
-                        Text("保持 StopWatch 靠近并亮屏。下一步会打开系统配件选择器。")
+                        Text("保持设备靠近并亮屏。下一步会打开系统配件选择器。")
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -205,7 +205,7 @@ private struct PairingSetupView: View {
                 .padding(24)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("添加 StopWatch")
+            .navigationTitle("添加设备")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -271,7 +271,7 @@ private struct NetworkView: View {
             } header: {
                 Text("当前状态")
             } footer: {
-                Text("也可在 StopWatch 设置中打开独立 Wi‑Fi 配网；Portal 成功后会显示为“手动设置目标网络”。")
+                Text("也可在设备设置中打开独立 Wi‑Fi 配网；Portal 成功后会显示为“手动设置目标网络”。")
             }
 
             if let errorMessage {
@@ -483,7 +483,7 @@ private struct WiFiSharingView: View {
                 .tint(.bajjiAccent)
             Text("正在安全共享")
                 .font(.title2.bold())
-            Text("请完成 iOS 系统授权，并保持 StopWatch 在附近。")
+            Text("请完成 iOS 系统授权，并保持设备在附近。")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             ProcessRow(number: "01", title: "系统授权", detail: "确认当前配件与个人网络")
@@ -498,7 +498,7 @@ private struct WiFiSharingView: View {
             Label("Wi‑Fi 已共享", systemImage: "checkmark.circle.fill")
                 .font(.title.bold())
                 .foregroundStyle(Color.bajjiSuccess)
-            Text("StopWatch 将只使用刚刚由 iOS 共享的个人网络。")
+            Text("设备将只使用刚刚由 iOS 共享的个人网络。")
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -511,7 +511,7 @@ private struct WiFiSharingView: View {
             .padding(18)
             .bajjiCard()
 
-            Text("实际联网状态由 StopWatch 确认；失败时只会重试这一个网络。")
+            Text("实际联网状态由设备确认；失败时只会重试这一个网络。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -622,7 +622,7 @@ private struct ImagesHomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("选择并发送方形原图；圆屏遮罩由 StopWatch 最终处理。")
+                Text("选择并发送图片；设备按自己的屏幕尺寸显示。")
                     .font(.body)
                     .foregroundStyle(.secondary)
 
@@ -651,9 +651,9 @@ private struct ImagesHomeView: View {
                     Text(wallpaper.currentImage == nil ? "当前随机壁纸" : wallpaper.currentTitle)
                         .font(.title2.weight(.semibold))
                     Text(wallpaper.currentImage == nil ?
-                         "由 StopWatch 管理" :
+                         "由设备管理" :
                             (wallpaper.needsTransfer ? currentMediaDetail + " · 已保存在 Bajji App" :
-                                currentMediaDetail + " · StopWatch 已确认"))
+                                currentMediaDetail + " · 设备已确认"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Divider()
@@ -672,7 +672,7 @@ private struct ImagesHomeView: View {
                 .buttonStyle(BajjiPrimaryButtonStyle())
 
                 if wallpaper.currentImage != nil {
-                    Button(wallpaper.needsTransfer ? "发送到 StopWatch" : "查看发送状态") {
+                    Button(wallpaper.needsTransfer ? "发送到设备" : "查看发送状态") {
                         presentedSheet = .transfer
                     }
                     .buttonStyle(BajjiOutlineButtonStyle())
@@ -833,7 +833,7 @@ private struct WallpaperEditorView: View {
 
     private func editor(_ image: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("拖动和缩放图片，选择要发送给 StopWatch 的方形区域。")
+            Text("拖动和缩放图片，选择要发送给设备的方形区域。")
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 16) {
@@ -934,7 +934,9 @@ struct WallpaperTransferStatusView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("PNG 或 GIF 会通过已配对的加密蓝牙链路发送；设备校验完成前不会替换当前壁纸。")
+                    Text(device.isAIPassport
+                         ? "AI Passport 将接收最长 120×160 的静态 JPEG；视频和 GIF 发送预览帧，适应模式使用纯色背景。"
+                         : "PNG 或 GIF 会通过已配对的加密蓝牙链路发送；设备校验完成前不会替换当前壁纸。")
                         .foregroundStyle(.secondary)
 
                     VStack(alignment: .leading, spacing: 18) {
@@ -957,7 +959,7 @@ struct WallpaperTransferStatusView: View {
                             .accessibilityValue(progress.formatted(.percent.precision(.fractionLength(0))))
                         }
                         TransferStep(number: "01", title: source == .current ? "准备方形资源" : "从历史加载资源", detail: preparedMediaDetail, state: .complete)
-                        TransferStep(number: "02", title: "发送到 StopWatch", detail: transferDetail, state: transferStepState)
+                        TransferStep(number: "02", title: "发送到设备", detail: transferDetail, state: transferStepState)
                         TransferStep(number: "03", title: "校验壁纸文件", detail: "核对大小、CRC、格式与解码预算", state: validationStepState)
                         TransferStep(number: "04", title: "原子替换并确认", detail: "设备回执成功后才更新当前壁纸", state: applyStepState)
                     }
@@ -965,11 +967,11 @@ struct WallpaperTransferStatusView: View {
                     .bajjiCard()
 
                     if !accessory.hasAccessory {
-                        Text("先添加 StopWatch；图片仍会保留在 App 中。")
+                        Text("先添加设备；图片仍会保留在 App 中。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else if device.isReady && !supportsWallpaper {
-                        Text("当前 StopWatch 固件不支持手机传图，请先升级设备固件。")
+                        Text("当前设备固件不支持手机传图，请先升级设备固件。")
                             .font(.footnote)
                             .foregroundStyle(.red)
                     } else if let errorMessage {
@@ -1026,7 +1028,7 @@ struct WallpaperTransferStatusView: View {
             .buttonStyle(BajjiPrimaryButtonStyle())
             .disabled(true)
         } else {
-            Button(bridgeReady ? "发送到 StopWatch" : "正在连接 StopWatch…") {
+            Button(bridgeReady ? "发送到设备" : "正在连接设备…") {
                 startTransfer()
             }
             .buttonStyle(BajjiPrimaryButtonStyle())
@@ -1069,7 +1071,7 @@ struct WallpaperTransferStatusView: View {
 
     private var preparedMediaDetail: String {
         guard let payload = preparedPayload else { return "正在读取本机文件" }
-        var parts = ["468×468 \(payload.format.label)"]
+        var parts = ["\(Int(payload.preview.size.width))×\(Int(payload.preview.size.height)) \(payload.format.label)"]
         if let duration = payload.duration { parts.append(String(format: "%.1f 秒", duration)) }
         if let frameRate = payload.frameRate { parts.append("\(frameRate) fps") }
         parts.append(ByteCountFormatter.string(
@@ -1107,6 +1109,8 @@ struct WallpaperTransferStatusView: View {
         errorMessage = nil
         transferTask = Task {
             do {
+                let payload = try device.isAIPassport ? WallpaperRenderer.passportPayload(payload) : payload
+                preparedPayload = payload
                 try await device.sendWallpaper(payload.data) { stage, value in
                     progress = value
                     switch stage {
@@ -1118,7 +1122,7 @@ struct WallpaperTransferStatusView: View {
                 do {
                     try wallpaper.recordSuccessfulSend(source: source, payload: payload)
                 } catch {
-                    errorMessage = "StopWatch 已确认，但无法保存发送历史：\(error.localizedDescription)"
+                    errorMessage = "设备已确认，但无法保存发送历史：\(error.localizedDescription)"
                 }
             } catch is CancellationError {
                 phase = .cancelled
@@ -1174,7 +1178,7 @@ private struct SettingsHomeView: View {
     var body: some View {
         List {
             Section {
-                Text("管理 StopWatch、连接与 Bajji 行为。")
+                Text("管理设备、连接与 Bajji 行为。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -1183,7 +1187,7 @@ private struct SettingsHomeView: View {
                 NavigationLink {
                     StopWatchParametersView(device: device, wallpaper: wallpaper)
                 } label: {
-                    SettingsRowLabel(title: "StopWatch 参数", detail: "亮度、显示与换图")
+                    SettingsRowLabel(title: "设备参数", detail: "亮度、显示与换图")
                 }
                 NavigationLink {
                     NetworkView(tunnel: tunnel, device: device, accessory: accessory)
@@ -1303,7 +1307,7 @@ private struct StopWatchParametersView: View {
                     .font(.footnote)
             }
         }
-        .navigationTitle("StopWatch 参数")
+        .navigationTitle("设备参数")
         .task {
             while !Task.isCancelled {
                 if canSync && !didLoadDeviceValues { await loadDeviceValues() }
@@ -1321,10 +1325,10 @@ private struct StopWatchParametersView: View {
             Button(device.status) {}
                 .disabled(true)
         } else if bridgeReady && !supportsSettings {
-            Button("需要升级 StopWatch 固件") {}
+            Button("需要升级设备固件") {}
                 .disabled(true)
         } else {
-            Button(bridgeReady ? "应用到 StopWatch" : "正在连接 StopWatch…") {
+            Button(bridgeReady ? "应用到设备" : "正在连接设备…") {
                 Task { await applyDeviceValues() }
             }
             .disabled(!canSync || isSyncing)
@@ -1348,7 +1352,7 @@ private struct StopWatchParametersView: View {
         do {
             updateForm(try await device.readDeviceSettings())
             didLoadDeviceValues = true
-            syncMessage = "已读取 StopWatch 当前参数"
+            syncMessage = "已读取设备当前参数"
             syncFailed = false
         } catch {
             didLoadDeviceValues = true
@@ -1368,7 +1372,7 @@ private struct StopWatchParametersView: View {
         )
         do {
             updateForm(try await device.applyDeviceSettings(settings))
-            syncMessage = "StopWatch 已应用并保存参数"
+            syncMessage = "设备已应用并保存参数"
             syncFailed = false
             syncSuccessCount += 1
         } catch {
@@ -1454,12 +1458,12 @@ private struct DiagnosticsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("查看当前链路状态，或安全解除 StopWatch 绑定。")
+                Text("查看当前链路状态，或安全解除设备绑定。")
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 8) {
                     StatusBadge(statusBadge.label, color: statusBadge.color)
-                    Text(accessory.hasAccessory ? accessory.status : "Bajji StopWatch")
+                    Text(accessory.hasAccessory ? accessory.status : "Bajji")
                         .font(.title2.weight(.semibold))
                     StatusRow(
                         label: "BLE 绑定",
@@ -1538,14 +1542,14 @@ private struct DiagnosticsView: View {
             await tunnel.readSnapshot()
         }
         .confirmationDialog(
-            "解除 StopWatch 绑定？",
+            "解除设备绑定？",
             isPresented: $showsUnpairConfirmation,
             titleVisibility: .visible
         ) {
-            Button("解除 StopWatch 绑定", role: .destructive) { unpair() }
+            Button("解除设备绑定", role: .destructive) { unpair() }
             Button("保留绑定", role: .cancel) {}
         } message: {
-            Text("解除后需重新添加并授权 StopWatch；iPhone 照片中的原图不会删除。")
+            Text("解除后需重新添加并授权设备；iPhone 照片中的原图不会删除。")
         }
         .alert("无法解除绑定", isPresented: Binding(
             get: { unpairError != nil },

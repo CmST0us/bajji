@@ -8,6 +8,8 @@ struct BridgeInfo: Equatable, Sendable {
     static let wallpaperCapability: UInt8 = 0x10
     static let networkControlCapability: UInt8 = 0x20
     static let controlOnlyCapability: UInt8 = 0x40
+    // A static JPEG profile for AI Passport: <=64 KiB, <=160 on each axis, <=19,200 pixels.
+    static let compactJPEGCapability: UInt8 = 0x80
     static let currentCapabilities: UInt8 = 0x7F
 
     let capabilities: UInt8

@@ -6,6 +6,33 @@
 #include <string.h>
 
 int main(void) {
+    wallpaper_media_info_t compact = {WALLPAPER_MEDIA_JPEG, 120, 160, false};
+    assert(wallpaper_passport_media_supported(&compact));
+    compact.width = 160;
+    assert(!wallpaper_passport_media_supported(&compact));
+    compact.height = 120;
+    assert(wallpaper_passport_media_supported(&compact));
+    compact.format = WALLPAPER_MEDIA_PNG;
+    assert(!wallpaper_passport_media_supported(&compact));
+    compact.format = WALLPAPER_MEDIA_JPEG;
+    compact.animated = true;
+    assert(!wallpaper_passport_media_supported(&compact));
+    compact.animated = false;
+    compact.width = 0;
+    assert(!wallpaper_passport_media_supported(&compact));
+    assert(!wallpaper_passport_media_supported(NULL));
+    char compact_url[256];
+    assert(wallpaper_build_passport_proxy_url("https://uapis.cn/api/v1/random/image?_=7",
+                                              false, compact_url, sizeof(compact_url)) == 0);
+    assert(strstr(compact_url, "/passport-cover?_=7"));
+    assert(wallpaper_build_passport_proxy_url("https://uapis.cn/api/v1/random/image?_=7",
+                                              true, compact_url, sizeof(compact_url)) == 0);
+    assert(strstr(compact_url, "/passport-fit?_=7"));
+    assert(wallpaper_build_passport_proxy_url("https://example.com", false,
+                                              compact_url, sizeof(compact_url)) == -1);
+    assert(wallpaper_build_passport_proxy_url("https://uapis.cn/api/v1/random/image?_=7",
+                                              false, compact_url, 8) == -1);
+
     // SOF0 with three components: 4:2:0 luma and 1x1 chroma, the shape TJpgDec accepts.
     const uint8_t jpeg[] = {
         0xff, 0xd8,

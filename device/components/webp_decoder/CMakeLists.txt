@@ -1,3 +1,7 @@
+if(IDF_TARGET STREQUAL "esp32c3")
+    idf_component_register()
+    return()
+endif()
 set(WEBP_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../vendor/libwebp")
 
 set(WEBP_SOURCES

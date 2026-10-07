@@ -51,6 +51,12 @@ struct BridgeStreamParserTests {
         }
     }
 
+    @Test func preservesPassportProfileAlongsideExistingCapabilities() throws {
+        let info = try BridgeInfo(data: Data([1, 0xff, 0, 0x81, 5, 0]) + Data(0..<16))
+        #expect(info.capabilities & BridgeInfo.compactJPEGCapability != 0)
+        #expect(info.capabilities & BridgeInfo.currentCapabilities == BridgeInfo.currentCapabilities)
+    }
+
     @Test func encodesFrameAndParsesBridgeInfo() throws {
         let encoded = try BridgeFrame(type: .pong, sequence: 0x1234, payload: Data(1...8)).encode()
         #expect(Array(encoded.prefix(8)) == [0xBA, 0x77, 1, 0x21, 0, 8, 0x12, 0x34])

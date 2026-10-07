@@ -32,11 +32,13 @@ enum WallpaperDisplayMode: String, CaseIterable {
 enum WallpaperMediaFormat: String, Codable, Sendable {
     case png
     case gif
+    case jpeg
 
     var label: String { rawValue.uppercased() }
     var fileExtension: String { rawValue }
 
     static func detect(_ data: Data) -> Self? {
+        if data.starts(with: [0xFF, 0xD8]) { return .jpeg }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return .png }
         if data.starts(with: Array("GIF87a".utf8)) ||
             data.starts(with: Array("GIF89a".utf8)) { return .gif }
@@ -493,7 +495,7 @@ final class WallpaperStore {
         try data.write(to: currentMediaURL(format: format), options: .atomic)
         guard let previewData = preview.pngData() else { throw WallpaperError.couldNotEncode }
         try previewData.write(to: currentPreviewURL, options: .atomic)
-        for otherFormat in [WallpaperMediaFormat.png, .gif] where otherFormat != format {
+        for otherFormat in [WallpaperMediaFormat.png, .gif, .jpeg] where otherFormat != format {
             try? FileManager.default.removeItem(at: currentMediaURL(format: otherFormat))
         }
         try? FileManager.default.removeItem(at: legacyImageURL)
@@ -517,6 +519,9 @@ final class WallpaperStore {
            FileManager.default.fileExists(atPath: currentMediaURL(format: metadata.format).path) {
             format = metadata.format
             url = currentMediaURL(format: metadata.format)
+        } else if FileManager.default.fileExists(atPath: currentMediaURL(format: .jpeg).path) {
+            format = .jpeg
+            url = currentMediaURL(format: .jpeg)
         } else if FileManager.default.fileExists(atPath: currentMediaURL(format: .gif).path) {
             format = .gif
             url = currentMediaURL(format: .gif)

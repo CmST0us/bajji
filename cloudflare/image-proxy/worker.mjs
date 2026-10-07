@@ -1,4 +1,16 @@
 const variants = {
+  "passport-cover": {
+    transform: { width: 120, height: 160, fit: "cover", sharpen: 1 },
+    quality: 80,
+    format: "image/jpeg",
+    anim: false,
+  },
+  "passport-fit": {
+    transform: { width: 120, height: 160, fit: "contain", sharpen: 1 },
+    quality: 80,
+    format: "image/jpeg",
+    anim: false,
+  },
   cover: {
     transform: { width: 466, height: 466, fit: "cover", sharpen: 1 },
     quality: 90,
@@ -64,7 +76,7 @@ export default {
       try {
         const result = await env.IMAGES.input(response.body)
           .transform(variant.transform)
-          .output({ format: "image/webp", quality: variant.quality, anim: true });
+          .output({ format: variant.format ?? "image/webp", quality: variant.quality, anim: variant.anim ?? true });
         const transformed = await result.response();
         const headers = new Headers(transformed.headers);
         headers.set("cache-control", "public, max-age=31536000, immutable");

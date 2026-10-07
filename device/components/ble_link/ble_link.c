@@ -32,7 +32,15 @@ void ble_store_config_init(void);
 // ESP_ERR_NO_MEM, ip_bridge.c:97 maps it to ERR_MEM and TCP retransmits - while at the measured
 // 2.5-6 KB/s link rate every extra slot is only queueing delay, never goodput.
 // sdkconfig.defaults uses one CoC RX SDU slot; two blocks cover one MTU plus mbuf overhead.
+#ifdef BAJJI_BOARD_AI_PASSPORT
+enum { kQueueCapacity = 4, kReceiveBufferCount = 2 };
+#define BAJJI_DEVICE_NAME "Bajji Passport"
+#define BAJJI_CAPABILITIES 0xff
+#else
 enum { kQueueCapacity = 16, kReceiveBufferCount = 2 };
+#define BAJJI_DEVICE_NAME "Bajji StopWatch"
+#define BAJJI_CAPABILITIES 0x7f
+#endif
 static const char* tag = "ble_link";
 static const ble_uuid128_t service_uuid = BLE_UUID128_INIT(
     0x21, 0xb3, 0x20, 0x2f, 0x9e, 0x3a, 0x54, 0xa8,
@@ -156,7 +164,7 @@ static int bridge_info_read(uint16_t conn, uint16_t attribute,
     if (ble_gap_conn_find(conn, &desc) != 0 || !desc.sec_state.encrypted || !peer_allowed(conn)) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-    uint8_t info[22] = {1, 0x7f, (uint8_t)(BAJJI_BRIDGE_PSM >> 8U), (uint8_t)BAJJI_BRIDGE_PSM,
+    uint8_t info[22] = {1, BAJJI_CAPABILITIES, (uint8_t)(BAJJI_BRIDGE_PSM >> 8U), (uint8_t)BAJJI_BRIDGE_PSM,
                         (uint8_t)(BRIDGE_MAX_PAYLOAD >> 8U), (uint8_t)BRIDGE_MAX_PAYLOAD};
     memcpy(info + 6, device_id, sizeof(device_id));
     return os_mbuf_append(context->om, info, sizeof(info)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -838,7 +846,7 @@ esp_err_t ble_link_start(void) {
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
-    if (ble_svc_gap_device_name_set("Bajji StopWatch") != 0 ||
+    if (ble_svc_gap_device_name_set(BAJJI_DEVICE_NAME) != 0 ||
         ble_gatts_count_cfg(services) != 0 || ble_gatts_add_svcs(services) != 0) return ESP_FAIL;
 
     ble_hs_cfg.reset_cb = NULL;
