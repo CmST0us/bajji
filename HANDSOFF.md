@@ -10,7 +10,7 @@
 
 ## 2026-10-07 · AI Passport 分支适配，构建通过，待真机与代理部署
 
-分支 `feature/ai-passport`。新增 C3/8 MB/no-PSRAM 配置、独立 HAL、240×320 竖屏 UI；
+分支 `feature/ai-passport` 已推送到 `origin/feature/ai-passport`。新增 C3/8 MB/no-PSRAM 配置、独立 HAL、240×320 竖屏 UI；
 UP/DOWN 对应显示/换图，提示沿右侧排列，OK 进入设置、长按返回，全部设置可不用触摸操作。
 官方 BSP 固定于 `33d3d1d93a1125b356b47b6d83a7a60121be801e`，codec 升级到 1.6.2；
 StopWatch 与 Passport 均完成 ESP-IDF 6.0 构建。Passport 仅接受 <=64 KiB、<=19,200 像素的
